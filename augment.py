@@ -11,12 +11,11 @@ import numpy as np
 import torch
 from PIL import Image
 
-from utils import LOGGER, colorstr
+from utils import LOGGER
 
-from utils.instance import Instances
-from utils.metrics import bbox_ioa
-from utils.ops import segment2box, xyxyxyxy2xywhr
-from utils.torch_utils import TORCHVISION_0_10, TORCHVISION_0_11, TORCHVISION_0_13
+from instance import Instances
+from metrics import bbox_ioa
+from ops import segment2box, xyxyxyxy2xywhr
 
 DEFAULT_MEAN = (0.0, 0.0, 0.0)
 DEFAULT_STD = (1.0, 1.0, 1.0)
@@ -860,60 +859,7 @@ class CopyPaste:
         return labels
 
 
-class Albumentations:
-    """
-    Albumentations transformations.
 
-    Optional, uninstall package to disable. Applies Blur, Median Blur, convert to grayscale, Contrast Limited Adaptive
-    Histogram Equalization, random change of brightness and contrast, RandomGamma and lowering of image quality by
-    compression.
-    """
-
-    def __init__(self, p=1.0):
-        """Initialize the transform object for YOLO bbox formatted params."""
-        self.p = p
-        self.transform = None
-        prefix = colorstr("albumentations: ")
-        try:
-            import albumentations as A
-
-            check_version(A.__version__, "1.0.3", hard=True)  # version requirement
-
-            # Transforms
-            T = [
-                A.Blur(p=0.01),
-                A.MedianBlur(p=0.01),
-                A.ToGray(p=0.01),
-                A.CLAHE(p=0.01),
-                A.RandomBrightnessContrast(p=0.0),
-                A.RandomGamma(p=0.0),
-                A.ImageCompression(quality_lower=75, p=0.0),
-            ]
-            self.transform = A.Compose(T, bbox_params=A.BboxParams(format="yolo", label_fields=["class_labels"]))
-
-            LOGGER.info(prefix + ", ".join(f"{x}".replace("always_apply=False, ", "") for x in T if x.p))
-        except ImportError:  # package not installed, skip
-            pass
-        except Exception as e:
-            LOGGER.info(f"{prefix}{e}")
-
-    def __call__(self, labels):
-        """Generates object detections and returns a dictionary with detection results."""
-        im = labels["img"]
-        cls = labels["cls"]
-        if len(cls):
-            labels["instances"].convert_bbox("xywh")
-            labels["instances"].normalize(*im.shape[:2][::-1])
-            bboxes = labels["instances"].bboxes
-            # TODO: add supports of segments and keypoints
-            if self.transform and random.random() < self.p:
-                new = self.transform(image=im, bboxes=bboxes, class_labels=cls)  # transformed
-                if len(new["class_labels"]) > 0:  # skip update if no bbox in new im
-                    labels["img"] = new["image"]
-                    labels["cls"] = np.array(new["class_labels"])
-                    bboxes = np.array(new["bboxes"], dtype=np.float32)
-            labels["instances"].update(bboxes=bboxes)
-        return labels
 
 
 class Format:
@@ -1124,7 +1070,6 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
         [
             pre_transform,
             MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
-            Albumentations(p=1.0),
             RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
             RandomFlip(direction="vertical", p=hyp.flipud),
             RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx),
@@ -1132,201 +1077,13 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
     )  # transforms
 
 
-# Classification augmentations -----------------------------------------------------------------------------------------
-def classify_transforms(
-    size=224,
-    mean=DEFAULT_MEAN,
-    std=DEFAULT_STD,
-    interpolation=Image.BILINEAR,
-    crop_fraction: float = DEFAULT_CROP_FRACTION,
-):
-    """
-    Classification transforms for evaluation/inference. Inspired by timm/data/transforms_factory.py.
-
-    Args:
-        size (int): image size
-        mean (tuple): mean values of RGB channels
-        std (tuple): std values of RGB channels
-        interpolation (T.InterpolationMode): interpolation mode. default is T.InterpolationMode.BILINEAR.
-        crop_fraction (float): fraction of image to crop. default is 1.0.
-
-    Returns:
-        (T.Compose): torchvision transforms
-    """
-    import torchvision.transforms as T  # scope for faster 'import ultralytics'
-
-    if isinstance(size, (tuple, list)):
-        assert len(size) == 2
-        scale_size = tuple(math.floor(x / crop_fraction) for x in size)
-    else:
-        scale_size = math.floor(size / crop_fraction)
-        scale_size = (scale_size, scale_size)
-
-    # Aspect ratio is preserved, crops center within image, no borders are added, image is lost
-    if scale_size[0] == scale_size[1]:
-        # Simple case, use torchvision built-in Resize with the shortest edge mode (scalar size arg)
-        tfl = [T.Resize(scale_size[0], interpolation=interpolation)]
-    else:
-        # Resize the shortest edge to matching target dim for non-square target
-        tfl = [T.Resize(scale_size)]
-    tfl += [T.CenterCrop(size)]
-
-    tfl += [
-        T.ToTensor(),
-        T.Normalize(
-            mean=torch.tensor(mean),
-            std=torch.tensor(std),
-        ),
-    ]
-
-    return T.Compose(tfl)
 
 
-# Classification training augmentations --------------------------------------------------------------------------------
-def classify_augmentations(
-    size=224,
-    mean=DEFAULT_MEAN,
-    std=DEFAULT_STD,
-    scale=None,
-    ratio=None,
-    hflip=0.5,
-    vflip=0.0,
-    auto_augment=None,
-    hsv_h=0.015,  # image HSV-Hue augmentation (fraction)
-    hsv_s=0.4,  # image HSV-Saturation augmentation (fraction)
-    hsv_v=0.4,  # image HSV-Value augmentation (fraction)
-    force_color_jitter=False,
-    erasing=0.0,
-    interpolation=Image.BILINEAR,
-):
-    """
-    Classification transforms with augmentation for training. Inspired by timm/data/transforms_factory.py.
-
-    Args:
-        size (int): image size
-        scale (tuple): scale range of the image. default is (0.08, 1.0)
-        ratio (tuple): aspect ratio range of the image. default is (3./4., 4./3.)
-        mean (tuple): mean values of RGB channels
-        std (tuple): std values of RGB channels
-        hflip (float): probability of horizontal flip
-        vflip (float): probability of vertical flip
-        auto_augment (str): auto augmentation policy. can be 'randaugment', 'augmix', 'autoaugment' or None.
-        hsv_h (float): image HSV-Hue augmentation (fraction)
-        hsv_s (float): image HSV-Saturation augmentation (fraction)
-        hsv_v (float): image HSV-Value augmentation (fraction)
-        force_color_jitter (bool): force to apply color jitter even if auto augment is enabled
-        erasing (float): probability of random erasing
-        interpolation (T.InterpolationMode): interpolation mode. default is T.InterpolationMode.BILINEAR.
-
-    Returns:
-        (T.Compose): torchvision transforms
-    """
-    # Transforms to apply if Albumentations not installed
-    import torchvision.transforms as T  # scope for faster 'import ultralytics'
-
-    if not isinstance(size, int):
-        raise TypeError(f"classify_transforms() size {size} must be integer, not (list, tuple)")
-    scale = tuple(scale or (0.08, 1.0))  # default imagenet scale range
-    ratio = tuple(ratio or (3.0 / 4.0, 4.0 / 3.0))  # default imagenet ratio range
-    primary_tfl = [T.RandomResizedCrop(size, scale=scale, ratio=ratio, interpolation=interpolation)]
-    if hflip > 0.0:
-        primary_tfl += [T.RandomHorizontalFlip(p=hflip)]
-    if vflip > 0.0:
-        primary_tfl += [T.RandomVerticalFlip(p=vflip)]
-
-    secondary_tfl = []
-    disable_color_jitter = False
-    if auto_augment:
-        assert isinstance(auto_augment, str)
-        # color jitter is typically disabled if AA/RA on,
-        # this allows override without breaking old hparm cfgs
-        disable_color_jitter = not force_color_jitter
-
-        if auto_augment == "randaugment":
-            if TORCHVISION_0_11:
-                secondary_tfl += [T.RandAugment(interpolation=interpolation)]
-            else:
-                LOGGER.warning('"auto_augment=randaugment" requires torchvision >= 0.11.0. Disabling it.')
-
-        elif auto_augment == "augmix":
-            if TORCHVISION_0_13:
-                secondary_tfl += [T.AugMix(interpolation=interpolation)]
-            else:
-                LOGGER.warning('"auto_augment=augmix" requires torchvision >= 0.13.0. Disabling it.')
-
-        elif auto_augment == "autoaugment":
-            if TORCHVISION_0_10:
-                secondary_tfl += [T.AutoAugment(interpolation=interpolation)]
-            else:
-                LOGGER.warning('"auto_augment=autoaugment" requires torchvision >= 0.10.0. Disabling it.')
-
-        else:
-            raise ValueError(
-                f'Invalid auto_augment policy: {auto_augment}. Should be one of "randaugment", '
-                f'"augmix", "autoaugment" or None'
-            )
-
-    if not disable_color_jitter:
-        secondary_tfl += [T.ColorJitter(brightness=hsv_v, contrast=hsv_v, saturation=hsv_s, hue=hsv_h)]
-
-    final_tfl = [
-        T.ToTensor(),
-        T.Normalize(mean=torch.tensor(mean), std=torch.tensor(std)),
-        T.RandomErasing(p=erasing, inplace=True),
-    ]
-
-    return T.Compose(primary_tfl + secondary_tfl + final_tfl)
 
 
-# NOTE: keep this class for backward compatibility
-class ClassifyLetterBox:
-    """
-    YOLOv8 LetterBox class for image preprocessing, designed to be part of a transformation pipeline, e.g.,
-    T.Compose([LetterBox(size), ToTensor()]).
 
-    Attributes:
-        h (int): Target height of the image.
-        w (int): Target width of the image.
-        auto (bool): If True, automatically solves for short side using stride.
-        stride (int): The stride value, used when 'auto' is True.
-    """
 
-    def __init__(self, size=(640, 640), auto=False, stride=32):
-        """
-        Initializes the ClassifyLetterBox class with a target size, auto-flag, and stride.
 
-        Args:
-            size (Union[int, Tuple[int, int]]): The target dimensions (height, width) for the letterbox.
-            auto (bool): If True, automatically calculates the short side based on stride.
-            stride (int): The stride value, used when 'auto' is True.
-        """
-        super().__init__()
-        self.h, self.w = (size, size) if isinstance(size, int) else size
-        self.auto = auto  # pass max size integer, automatically solve for short side using stride
-        self.stride = stride  # used with auto
-
-    def __call__(self, im):
-        """
-        Resizes the image and pads it with a letterbox method.
-
-        Args:
-            im (numpy.ndarray): The input image as a numpy array of shape HWC.
-
-        Returns:
-            (numpy.ndarray): The letterboxed and resized image as a numpy array.
-        """
-        imh, imw = im.shape[:2]
-        r = min(self.h / imh, self.w / imw)  # ratio of new/old dimensions
-        h, w = round(imh * r), round(imw * r)  # resized image dimensions
-
-        # Calculate padding dimensions
-        hs, ws = (math.ceil(x / self.stride) * self.stride for x in (h, w)) if self.auto else (self.h, self.w)
-        top, left = round((hs - h) / 2 - 0.1), round((ws - w) / 2 - 0.1)
-
-        # Create padded image
-        im_out = np.full((hs, ws, 3), 114, dtype=im.dtype)
-        im_out[top : top + h, left : left + w] = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
-        return im_out
 
 
 # NOTE: keep this class for backward compatibility

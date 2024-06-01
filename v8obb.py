@@ -1,8 +1,14 @@
 import buildmodel
+import loaddata
+
+v8obb = buildmodel.ModelYolov8obb(nc = 80)
+
+for module in v8obb.modules():
+    print(module)
 
 
-buildmodel.build_model()
 
+#test Input Tensor
 
 
 

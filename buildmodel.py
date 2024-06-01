@@ -13,7 +13,7 @@ from head import *
 class ModelYolov8obb(nn.Module):
 
 
-    def __init__(self, nc=80, anchors=(), ch=(), arch=None, act=None):
+    def __init__(self, nc=80, arch=None, act=None):
         """
         YOLOv8 model.
 
@@ -24,7 +24,7 @@ class ModelYolov8obb(nn.Module):
             arch (str): Architecture
             act (str): Activation
         """
-
+        super(ModelYolov8obb, self).__init__()
         # backbone
         self.conv1 = Conv(3, 64, 3, 2) # l0
         self.conv2 = Conv(64, 128, 3, 2) #l1
@@ -77,6 +77,4 @@ class ModelYolov8obb(nn.Module):
         x = self.concat4([x,l9x]) # l20 
         l21x = self.c2f8(x) # l21
         
-        
-
         return self.detecthead([l21x,l18x,l15x])
