@@ -13,7 +13,7 @@ from head import *
 class ModelYolov8obb(nn.Module):
 
 
-    def __init__(self, nc=80, arch=None, act=None):
+    def __init__(self, nc=80,ch = None, arch=None, act=None):
         """
         YOLOv8 model.
 
@@ -50,7 +50,7 @@ class ModelYolov8obb(nn.Module):
         self.conv7 = Conv(512, 512, 3, 2) # l19
         self.concat4 = Concat(dimension = 1) # l20
         self.c2f8 = C2f(1024, 1024, n = 3, shortcut = False, g = 1, e = 0.5) # l21
-        self.detecthead  = OBB(nc = nc, ne = 1) # l22 
+        self.detecthead  = OBB(nc = nc, ne = 1, ch = (256,512,512)) # l22 
 
     
     def forward(self, x):
