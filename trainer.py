@@ -17,6 +17,7 @@ import numpy as np
 import torch
 from torch import distributed as dist
 from torch import nn, optim
+from utils import *
 
 
 def get_save_dir():
@@ -97,7 +98,7 @@ class BaseTrainer:
         self.epochs = self.args.epochs
         self.start_epoch = 0
         if RANK == -1:
-            print_args(vars(self.args))
+            print("One GPU CUDA : ")
 
         # Device
         if self.device.type in {"cpu", "mps"}:

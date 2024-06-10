@@ -12,8 +12,7 @@ from head import *
 
 class ModelYolov8obb(nn.Module):
 
-
-    def __init__(self, nc=80,ch = None, arch=None, act=None):
+    def __init__(self, nc=80, ch = 3, arch=None, act=None): # number of classed , input channels
         """
         YOLOv8 model.
 
@@ -25,17 +24,21 @@ class ModelYolov8obb(nn.Module):
             act (str): Activation
         """
         super(ModelYolov8obb, self).__init__()
+
+
+        
+        self.names = {i: f"{i}" for i in range(self.nc)}  # default names dict
         # backbone
-        self.conv1 = Conv(3, 64, 3, 2) # l0
-        self.conv2 = Conv(64, 128, 3, 2) #l1
-        self.c2f1 =  C2f(128, 128, n=3, shortcut=True, g=1, e=0.5) #l2
+        self.conv1 = Conv(3, 64, 3, 2) # l0  80x320x320
+        self.conv2 = Conv(64, 128, 3, 2) #l1  123x160x160x
+        self.c2f1 =  C2f(128, 128, n=3, shortcut=True, g=1, e=0.5) #l2  
         self.conv3 = Conv(128, 256, 1, 1) #l3 
-        self.c2f2 = C2f(256,256, n = 6,shortcut = True,g =1, e = 0.5) #l4
+        self.c2f2 = C2f(256,256, n = 6,shortcut = True,g =1, e = 0.5) # l4 Concat stride = 8
         self.conv4 = C2f(256,512, ) # l5
-        self.c2f3 = C2f(512,512, n = 6, shortcut = True, g = 1, e = 0.5) #l6
+        self.c2f3 = C2f(512,512, n = 6, shortcut = True, g = 1, e = 0.5) #l6 Concat stride = 16
         self.conv5 = Conv(512, 1024, 3, 2) # l7
         self.c2f4 = C2f(1024, 1024, n = 3, shortcut = True, g = 1, e  = 0.5)  # l8
-        self.sppf = SPPF(1024, 1024,k=5) # l9
+        self.sppf = SPPF(1024, 1024,k=5) # l9 Concat stride = 32
 
         # head 
         self.Upsample1 = nn.Upsample(size =None,scale_factor=2, mode='nearest') # l10

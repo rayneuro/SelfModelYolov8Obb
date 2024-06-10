@@ -4,7 +4,14 @@ import sys
 import os
 import matplotlib.pyplot as plt
 import contextlib
+import re
+from pathlib import Path
+import yaml
 
+
+import cv2
+import numpy as np
+from PIL import Image, ImageOps
 
 VERBOSE =  True # global verbose mode
 #RANK = int(os.getenv("RANK", -1))
@@ -14,6 +21,114 @@ LOGGING_NAME = 'User'
 def emojis(string=""):
     """Return platform-dependent emoji-safe version of string."""
     return string
+
+def img2label_paths(img_paths):
+    """Define label paths as a function of image paths."""
+    sa, sb = f"{os.sep}images{os.sep}", f"{os.sep}labels{os.sep}"  # /images/, /labels/ substrings
+    return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt" for x in img_paths]
+
+
+def verify_image(args):
+    """Verify one image."""
+    (im_file, cls), prefix = args
+    # Number (found, corrupt), message
+    nf, nc, msg = 0, 0, ""
+    try:
+        im = Image.open(im_file)
+        im.verify()  # PIL verify
+        shape = exif_size(im)  # image size
+        shape = (shape[1], shape[0])  # hw
+        assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
+        assert im.format.lower() in IMG_FORMATS, f"Invalid image format {im.format}. {FORMATS_HELP_MSG}"
+        if im.format.lower() in {"jpg", "jpeg"}:
+            with open(im_file, "rb") as f:
+                f.seek(-2, 2)
+                if f.read() != b"\xff\xd9":  # corrupt JPEG
+                    ImageOps.exif_transpose(Image.open(im_file)).save(im_file, "JPEG", subsampling=0, quality=100)
+                    msg = f"{prefix}WARNING ⚠️ {im_file}: corrupt JPEG restored and saved"
+        nf = 1
+    except Exception as e:
+        nc = 1
+        msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
+    return (im_file, cls), nf, nc, msg
+
+
+def yaml_save(file="data.yaml", data=None, header=""):
+    """
+    Save YAML data to a file.
+
+    Args:
+        file (str, optional): File name. Default is 'data.yaml'.
+        data (dict): Data to save in YAML format.
+        header (str, optional): YAML header to add.
+
+    Returns:
+        (None): Data is saved to the specified file.
+    """
+    if data is None:
+        data = {}
+    file = Path(file)
+    if not file.parent.exists():
+        # Create parent directories if they don't exist
+        file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Convert Path objects to strings
+    valid_types = int, float, str, bool, list, tuple, dict, type(None)
+    for k, v in data.items():
+        if not isinstance(v, valid_types):
+            data[k] = str(v)
+
+    # Dump data to file in YAML format
+    with open(file, "w", errors="ignore", encoding="utf-8") as f:
+        if header:
+            f.write(header)
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+
+def yaml_load(file="data.yaml", append_filename=False):
+    """
+    Load YAML data from a file.
+
+    Args:
+        file (str, optional): File name. Default is 'data.yaml'.
+        append_filename (bool): Add the YAML filename to the YAML dictionary. Default is False.
+
+    Returns:
+        (dict): YAML data and file name.
+    """
+    assert Path(file).suffix in {".yaml", ".yml"}, f"Attempting to load non-YAML file {file} with yaml_load()"
+    with open(file, errors="ignore", encoding="utf-8") as f:
+        s = f.read()  # string
+
+        # Remove special characters
+        if not s.isprintable():
+            s = re.sub(r"[^\x09\x0A\x0D\x20-\x7E\x85\xA0-\uD7FF\uE000-\uFFFD\U00010000-\U0010ffff]+", "", s)
+
+        # Add YAML filename to dict and return
+        data = yaml.safe_load(s) or {}  # always return a dict (yaml.safe_load() may return None for empty files)
+        if append_filename:
+            data["yaml_file"] = str(file)
+        return data
+
+def find_dataset_yaml(path: Path) -> Path:
+    """
+    Find and return the YAML file associated with a Detect, Segment or Pose dataset.
+
+    This function searches for a YAML file at the root level of the provided directory first, and if not found, it
+    performs a recursive search. It prefers YAML files that have the same stem as the provided path. An AssertionError
+    is raised if no YAML file is found or if multiple YAML files are found.
+
+    Args:
+        path (Path): The directory path to search for the YAML file.
+
+    Returns:
+        (Path): The path of the found YAML file.
+    """
+    files = list(path.glob("*.yaml")) or list(path.rglob("*.yaml"))  # try root level first and then recursive
+    assert files, f"No YAML file found in '{path.resolve()}'"
+    if len(files) > 1:
+        files = [f for f in files if f.stem == path.stem]  # prefer *.yaml files that match
+    assert len(files) == 1, f"Expected 1 YAML file in '{path.resolve()}', but found {len(files)}.\n{files}"
+    return files[0]
 
 
 class SimpleClass:

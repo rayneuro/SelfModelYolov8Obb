@@ -54,7 +54,10 @@ from utils import (
     save_dataset_cache_file,
     verify_image,
     verify_image_label,
+    yaml_load
 )
+
+
 
 # Ultralytics dataset *.cache version, >= 1.0.0 for YOLOv8
 DATASET_CACHE_VERSION = "1.0.3"
@@ -539,13 +542,14 @@ class YOLODataset(BaseDataset):
         return labels
 
     def build_transforms(self, hyp=None):
-        """Builds and appends transforms to the list."""
+        """Builds and appends transforms to the list.
+        
         if self.augment:
             hyp.mosaic = hyp.mosaic if self.augment and not self.rect else 0.0
             hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
             transforms = v8_transforms(self, self.imgsz, hyp)
-        else:
-            transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
+        else:"""
+        transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
         transforms.append(
             Format(
                 bbox_format="xywh",

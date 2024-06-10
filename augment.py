@@ -964,81 +964,6 @@ class Format:
         return masks, instances, cls
 
 
-class RandomLoadText:
-    """
-    Randomly sample positive texts and negative texts and update the class indices accordingly to the number of samples.
-
-    Attributes:
-        prompt_format (str): Format for prompt. Default is '{}'.
-        neg_samples (tuple[int]): A ranger to randomly sample negative texts, Default is (80, 80).
-        max_samples (int): The max number of different text samples in one image, Default is 80.
-        padding (bool): Whether to pad texts to max_samples. Default is False.
-        padding_value (str): The padding text. Default is "".
-    """
-
-    def __init__(
-        self,
-        prompt_format: str = "{}",
-        neg_samples: Tuple[int, int] = (80, 80),
-        max_samples: int = 80,
-        padding: bool = False,
-        padding_value: str = "",
-    ) -> None:
-        """Initializes the RandomLoadText class with given parameters."""
-        self.prompt_format = prompt_format
-        self.neg_samples = neg_samples
-        self.max_samples = max_samples
-        self.padding = padding
-        self.padding_value = padding_value
-
-    def __call__(self, labels: dict) -> dict:
-        """Return updated classes and texts."""
-        assert "texts" in labels, "No texts found in labels."
-        class_texts = labels["texts"]
-        num_classes = len(class_texts)
-        cls = np.asarray(labels.pop("cls"), dtype=int)
-        pos_labels = np.unique(cls).tolist()
-
-        if len(pos_labels) > self.max_samples:
-            pos_labels = set(random.sample(pos_labels, k=self.max_samples))
-
-        neg_samples = min(min(num_classes, self.max_samples) - len(pos_labels), random.randint(*self.neg_samples))
-        neg_labels = []
-        for i in range(num_classes):
-            if i not in pos_labels:
-                neg_labels.append(i)
-        neg_labels = random.sample(neg_labels, k=neg_samples)
-
-        sampled_labels = pos_labels + neg_labels
-        random.shuffle(sampled_labels)
-
-        label2ids = {label: i for i, label in enumerate(sampled_labels)}
-        valid_idx = np.zeros(len(labels["instances"]), dtype=bool)
-        new_cls = []
-        for i, label in enumerate(cls.squeeze(-1).tolist()):
-            if label not in label2ids:
-                continue
-            valid_idx[i] = True
-            new_cls.append([label2ids[label]])
-        labels["instances"] = labels["instances"][valid_idx]
-        labels["cls"] = np.array(new_cls)
-
-        # Randomly select one prompt when there's more than one prompts
-        texts = []
-        for label in sampled_labels:
-            prompts = class_texts[label]
-            assert len(prompts) > 0
-            prompt = self.prompt_format.format(prompts[random.randrange(len(prompts))])
-            texts.append(prompt)
-
-        if self.padding:
-            valid_labels = len(pos_labels) + len(neg_labels)
-            num_padding = self.max_samples - valid_labels
-            if num_padding > 0:
-                texts += [self.padding_value] * num_padding
-
-        labels["texts"] = texts
-        return labels
 
 
 def v8_transforms(dataset, imgsz, hyp, stretch=False):
@@ -1075,8 +1000,6 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
             RandomFlip(direction="horizontal", p=hyp.fliplr, flip_idx=flip_idx),
         ]
     )  # transforms
-
-
 
 
 
