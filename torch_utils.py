@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
 from typing import Union
+import sys
 
 import numpy as np
 import torch
@@ -16,7 +17,7 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ultralytics.utils import (
+from utils import (
     DEFAULT_CFG_DICT,
     DEFAULT_CFG_KEYS,
     LOGGER,
@@ -27,10 +28,15 @@ from ultralytics.utils import (
 )
 from ultralytics.utils.checks import check_version
 
+
+
+
 try:
     import thop
 except ImportError:
     thop = None
+
+
 
 # Version checks (all default to version>=min_version)
 TORCH_1_9 = check_version(torch.__version__, "1.9.0")
@@ -112,7 +118,7 @@ def select_device(device="", batch=0, newline=False, verbose=True):
     if isinstance(device, torch.device):
         return device
 
-    s = f"Ultralytics YOLOv{__version__} 🚀 Python-{PYTHON_VERSION} torch-{torch.__version__} "
+    s = f"YOLOv{__version__} 🚀 Python-{PYTHON_VERSION} torch-{torch.__version__} "
     device = str(device).lower()
     for remove in "cuda:", "none", "(", ")", "[", "]", "'", " ":
         device = device.replace(remove, "")  # to string, 'cuda:0' -> '0' and '(0, 1)' -> '0,1'
