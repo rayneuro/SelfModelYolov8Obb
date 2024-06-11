@@ -8,6 +8,13 @@ from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from PIL import Image
 from torch.utils.data import dataloader, distributed
+import random
+import psutil
+import glob
+import os
+
+NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of YOLO multiprocessing threads
+
 
 from copy import deepcopy
 import math
@@ -426,8 +433,7 @@ class YOLODataset(BaseDataset):
 
     def __init__(self, *args, data=None, task="detect", **kwargs):
         """Initializes the YOLODataset with optional configurations for segments and keypoints."""
-        self.use_segments = task == "segment"
-        self.use_keypoints = task == "pose"
+        
         self.use_obb = task == "obb"
         self.data = data
         assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
@@ -556,7 +562,7 @@ class YOLODataset(BaseDataset):
                 normalize=True,
                 return_mask=self.use_segments,
                 return_keypoint=self.use_keypoints,
-                return_obb=self.use_obb,
+                return_obb= True,
                 batch_idx=True,
                 mask_ratio=hyp.mask_ratio,
                 mask_overlap=hyp.overlap_mask,
