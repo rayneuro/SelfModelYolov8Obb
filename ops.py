@@ -50,8 +50,6 @@ LOGGER = set_logging(LOGGING_NAME, verbose=VERBOSE)  # define globally (used in 
 
 
 
-
-
 class Profile(contextlib.ContextDecorator):
     """
     YOLOv8 Profile class. Use as a decorator with @Profile() or as a context manager with 'with Profile():'.

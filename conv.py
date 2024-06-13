@@ -9,7 +9,6 @@ __all__ = (
     "ChannelAttention",
     "SpatialAttention",
     "Concat",
-
 )
 
 
