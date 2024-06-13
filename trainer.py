@@ -10,6 +10,7 @@ from checks import *
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
+from dataset import *
 
 
 from tensorboard import callbacks
@@ -30,6 +31,148 @@ def get_save_dir():
 
 
 RANK = -1  # rank of current process
+
+
+
+def check_suffix(file="yolov8n.pt", suffix=".pt", msg=""):
+    """Check file(s) for acceptable suffix."""
+    if file and suffix:
+        if isinstance(suffix, str):
+            suffix = (suffix,)
+        for f in file if isinstance(file, (list, tuple)) else [file]:
+            s = Path(f).suffix.lower().strip()  # file suffix
+            if len(s):
+                assert s in suffix, f"{msg}{f} acceptable suffix is {suffix}, not {s}"
+
+
+
+def check_file(file, suffix="", download=True, hard=True):
+    """Search/download file (if necessary) and return path."""
+    # check_suffix(file, suffix)  # optional
+    file = str(file).strip()  # convert to string and strip spaces
+    
+    
+    files = glob.glob(str('./' / "**" / file), recursive=True)  # find file
+    if not files and hard:
+        raise FileNotFoundError(f"'{file}' does not exist")
+    elif len(files) > 1 and hard:
+        raise FileNotFoundError(f"Multiple files match '{file}', specify exact path: {files}")
+    return files[0] if len(files) else []  # return file
+
+
+
+def check_class_names(names):
+    """
+    Check class names.
+
+    Map imagenet class codes to human-readable names if required. Convert lists to dicts.
+    """
+    if isinstance(names, list):  # names is a list
+        names = dict(enumerate(names))  # convert to dict
+    if isinstance(names, dict):
+        # Convert 1) string keys to int, i.e. '0' to 0, and non-string values to strings, i.e. True to 'True'
+        names = {int(k): str(v) for k, v in names.items()}
+        n = len(names)
+        if max(names.keys()) >= n:
+            raise KeyError(
+                f"{n}-class dataset requires class indices 0-{n - 1}, but you have invalid class indices "
+                f"{min(names.keys())}-{max(names.keys())} defined in your dataset YAML."
+            )
+        if isinstance(names[0], str) and names[0].startswith("n0"):  # imagenet class codes, i.e. 'n01440764'
+            names_map = yaml_load('.' / "cfg/datasets/ImageNet.yaml")["map"]  # human-readable names
+            names = {k: names_map[v] for k, v in names.items()}
+    return names
+
+
+
+
+
+def check_det_dataset(dataset, autodownload=True):
+    """
+    Download, verify, and/or unzip a dataset if not found locally.
+
+    This function checks the availability of a specified dataset, and if not found, it has the option to download and
+    unzip the dataset. It then reads and parses the accompanying YAML data, ensuring key requirements are met and also
+    resolves paths related to the dataset.
+
+    Args:
+        dataset (str): Path to the dataset or dataset descriptor (like a YAML file).
+        autodownload (bool, optional): Whether to automatically download the dataset if not found. Defaults to True.
+
+    Returns:
+        (dict): Parsed dataset information and paths.
+    """
+
+    file = check_file(dataset)
+
+    # Download (optional)
+    extract_dir = ""
+    
+
+    # Read YAML
+    data = yaml_load(file, append_filename=True)  # dictionary
+
+    # Checks
+    for k in "train", "val":
+        if k not in data:
+            if k != "val" or "validation" not in data:
+                raise SyntaxError(
+                    emojis(f"{dataset} '{k}:' key missing ❌.\n'train' and 'val' are required in all data YAMLs.")
+                )
+            LOGGER.info("WARNING ⚠️ renaming data YAML 'validation' key to 'val' to match YOLO format.")
+            data["val"] = data.pop("validation")  # replace 'validation' key with 'val' key
+    if "names" not in data and "nc" not in data:
+        raise SyntaxError(emojis(f"{dataset} key missing ❌.\n either 'names' or 'nc' are required in all data YAMLs."))
+    if "names" in data and "nc" in data and len(data["names"]) != data["nc"]:
+        raise SyntaxError(emojis(f"{dataset} 'names' length {len(data['names'])} and 'nc: {data['nc']}' must match."))
+    if "names" not in data:
+        data["names"] = [f"class_{i}" for i in range(data["nc"])]
+    else:
+        data["nc"] = len(data["names"])
+
+    data["names"] = check_class_names(data["names"])
+
+    # Resolve paths
+    path = Path(extract_dir or data.get("path") or Path(data.get("yaml_file", "")).parent)  # dataset root
+    if not path.is_absolute():
+        DATASETS_DIR = './datasets'
+        path = (DATASETS_DIR / path).resolve()
+
+    # Set paths
+    data["path"] = path  # download scripts
+    for k in "train", "val", "test", "minival":
+        if data.get(k):  # prepend path
+            if isinstance(data[k], str):
+                x = (path / data[k]).resolve()
+                if not x.exists() and data[k].startswith("../"):
+                    x = (path / data[k][3:]).resolve()
+                data[k] = str(x)
+            else:
+                data[k] = [str((path / x).resolve()) for x in data[k]]
+
+    # Parse YAML
+    val, s = (data.get(x) for x in ("val", "download"))
+    if val:
+        val = [Path(x).resolve() for x in (val if isinstance(val, list) else [val])]  # val path
+        '''
+        if not all(x.exists() for x in val):
+            name = clean_url(dataset)  # dataset name with URL auth stripped
+            m = f"\nDataset '{name}' images not found ⚠️, missing path '{[x for x in val if not x.exists()][0]}'"
+            if s and autodownload:
+                LOGGER.warning(m)
+            else:
+                m += f"\nNote dataset download directory is '{DATASETS_DIR}'. You can update this in '{SETTINGS_YAML}'"
+                raise FileNotFoundError(m)
+            t = time.time()
+            r = None  # success
+            
+            exec(s, {"yaml": data})
+            dt = f"({round(time.time() - t, 1)}s)"
+            s = f"success ✅ {dt}, saved to {colorstr('bold', DATASETS_DIR)}" if r in {0, None} else f"failure {dt} ❌"
+            LOGGER.info(f"Dataset download {s}\n")
+        '''
+    
+    return data  # dictionary
 
 
 class BaseTrainer:
@@ -478,21 +621,16 @@ class BaseTrainer:
         Returns None if data format is not recognized.
         """
         try:
-            if self.args.task == "classify":
-                data = check_cls_dataset(self.args.data)
-            elif self.args.data.split(".")[-1] in {"yaml", "yml"} or self.args.task in {
-                "detect",
-                "segment",
-                "pose",
-                "obb",
-            }:
-                data = check_det_dataset(self.args.data)
-                if "yaml_file" in data:
+            
+            data = check_det_dataset(self.args.data)
+            if "yaml_file" in data:
                     self.args.data = data["yaml_file"]  # for validating 'yolo train data=url.zip' usage
         except Exception as e:
             raise RuntimeError(emojis(f"Dataset '{clean_url(self.args.data)}' error ❌ {e}")) from e
         self.data = data
         return data["train"], data.get("val") or data.get("test")
+
+    
 
     def setup_model(self):
         """Load/create/download model for any task."""

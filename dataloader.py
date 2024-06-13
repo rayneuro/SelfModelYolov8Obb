@@ -3,8 +3,9 @@ from torch.utils.data import dataloader , distributed
 import numpy as np
 import random
 import os
-from utils import * 
+from utils import *
 PIN_MEMORY = str(os.getenv("PIN_MEMORY", True)).lower() == "true"  # global pin_memory for dataloaders
+VERBOSE =  True # global verbose mode
 
 
 class InfiniteDataLoader(dataloader.DataLoader):

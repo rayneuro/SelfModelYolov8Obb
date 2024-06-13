@@ -4,14 +4,52 @@ import contextlib
 import math
 import re
 import time
-
+import logging
 import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+import sys
 
-from utils import LOGGER
 from metrics import batch_probiou
+
+
+VERBOSE =  True # global verbose mode
+
+
+def set_logging(name="LOGGING_NAME", verbose=True):
+    """Sets up logging for the given name with UTF-8 encoding support, ensuring compatibility across different
+    environments.
+    """
+    level = logging.INFO  # rank in world for Multi-GPU trainings
+
+    # Configure the console (stdout) encoding to UTF-8, with checks for compatibility
+    formatter = logging.Formatter("%(message)s")  # Default formatter
+    
+
+    # Create and configure the StreamHandler with the appropriate formatter and level
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(level)
+
+    # Set up the logger
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(stream_handler)
+    logger.propagate = False
+    return logger
+
+
+LOGGING_NAME = 'User'
+LOGGER = set_logging(LOGGING_NAME, verbose=VERBOSE)  # define globally (used in train.py, val.py, predict.py, etc.)
+
+
+
+
+
+
+
+
 
 
 class Profile(contextlib.ContextDecorator):

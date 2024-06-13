@@ -13,7 +13,10 @@ import psutil
 import glob
 import os
 
+
+IMG_FORMATS = {"bmp", "dng", "jpeg", "jpg", "mpo", "png", "tif", "tiff", "webp", "pfm"}  # image suffixes
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of YOLO multiprocessing threads
+FORMATS_HELP_MSG = f"Supported formats are:\nimages: {IMG_FORMATS}\n"
 
 
 from copy import deepcopy
@@ -37,7 +40,9 @@ import torch
 from PIL import Image
 from torch.utils.data import ConcatDataset
 
-from utils import LOCAL_RANK, NUM_THREADS, TQDM, colorstr
+from utils import LOCAL_RANK, TQDM
+
+
 from ops import resample_segments
 
 from augment import (
@@ -45,20 +50,14 @@ from augment import (
     Format,
     Instances,
     LetterBox,
-    RandomLoadText,
-    classify_augmentations,
-    classify_transforms,
     v8_transforms,
 )
 
 
 from utils import (
-    HELP_URL,
     LOGGER,
     get_hash,
     img2label_paths,
-    load_dataset_cache_file,
-    save_dataset_cache_file,
     verify_image,
     verify_image_label,
     yaml_load
@@ -75,7 +74,6 @@ for k, v in DEFAULT_CFG_DICT.items():
     if isinstance(v, str) and v.lower() == "none":
         DEFAULT_CFG_DICT[k] = None
 DEFAULT_CFG_KEYS = DEFAULT_CFG_DICT.keys()
-DEFAULT_CFG = IterableSimpleNamespace(**DEFAULT_CFG_DICT)
 
 
 
@@ -163,7 +161,7 @@ DEFAULT_CFG = IterableSimpleNamespace(**DEFAULT_CFG_DICT)
         imgsz=640,
         cache=False,
         augment=True,
-        hyp=DEFAULT_CFG,
+        hyp=None,
         prefix="",
         rect=False,
         batch_size=16,
@@ -193,10 +191,7 @@ DEFAULT_CFG = IterableSimpleNamespace(**DEFAULT_CFG_DICT)
             assert self.batch_size is not None
             self.set_rectangle()
 
-        # Buffer thread for mosaic images
-        self.buffer = []  # buffer size = batch size
-        self.max_buffer_length = min((self.ni, self.batch_size * 8, 1000)) if self.augment else 0
-
+        # Buffer thread for mosaic imagesIMG_FORMATS
         # Cache images (options are cache = True, False, None, "ram", "disk")
         self.ims, self.im_hw0, self.im_hw = [None] * self.ni, [None] * self.ni, [None] * self.ni
         self.npy_files = [Path(f).with_suffix(".npy") for f in self.im_files]
@@ -228,11 +223,32 @@ DEFAULT_CFG = IterableSimpleNamespace(**DEFAULT_CFG_DICT)
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
             assert im_files, f"{self.prefix}No images found in {img_path}. {FORMATS_HELP_MSG}"
         except Exception as e:
-            raise FileNotFoundError(f"{self.prefix}Error loading data from {img_path}\n{HELP_URL}") from e
+            print("Error in get_img_files", e)
         if self.fraction < 1:
             im_files = im_files[: round(len(im_files) * self.fraction)]  # retain a fraction of the dataset
         return im_files
+    
 
+    def check_cache_ram(self, safety_margin=0.5):
+        """Check image caching requirements vs available memory."""
+        b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
+        n = min(self.ni, 30)  # extrapolate from 30 random images
+        for _ in range(n):
+            im = cv2.imread(random.choice(self.im_files))  # sample image
+            ratio = self.imgsz / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
+            b += im.nbytes * ratio**2
+        mem_required = b * self.ni / n * (1 + safety_margin)  # GB required to cache dataset into RAM
+        mem = psutil.virtual_memory()
+        success = mem_required < mem.available  # to cache or not to cache, that is the question
+        if not success:
+            self.cache = None
+            LOGGER.info(
+                f"{self.prefix}{mem_required / gb:.1f}GB RAM required to cache images "
+                f"with {int(safety_margin * 100)}% safety margin but only "
+                f"{mem.available / gb:.1f}/{mem.total / gb:.1f}GB available, not caching images ⚠️"
+            )
+        return success
+    
     def update_labels(self, include_class: Optional[list]):
         """Update labels to include only these classes (optional)."""
         include_class_array = np.array(include_class).reshape(1, -1)
@@ -290,47 +306,9 @@ DEFAULT_CFG = IterableSimpleNamespace(**DEFAULT_CFG_DICT)
 
         return self.ims[i], self.im_hw0[i], self.im_hw[i]
 
-    def cache_images(self):
-        """Cache images to memory or disk."""
-        b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
-        fcn, storage = (self.cache_images_to_disk, "Disk") if self.cache == "disk" else (self.load_image, "RAM")
-        with ThreadPool(NUM_THREADS) as pool:
-            results = pool.imap(fcn, range(self.ni))
-            pbar = TQDM(enumerate(results), total=self.ni, disable=LOCAL_RANK > 0)
-            for i, x in pbar:
-                if self.cache == "disk":
-                    b += self.npy_files[i].stat().st_size
-                else:  # 'ram'
-                    self.ims[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
-                    b += self.ims[i].nbytes
-                pbar.desc = f"{self.prefix}Caching images ({b / gb:.1f}GB {storage})"
-            pbar.close()
+    
 
-    def cache_images_to_disk(self, i):
-        """Saves an image as an *.npy file for faster loading."""
-        f = self.npy_files[i]
-        if not f.exists():
-            np.save(f.as_posix(), cv2.imread(self.im_files[i]), allow_pickle=False)
 
-    def check_cache_ram(self, safety_margin=0.5):
-        """Check image caching requirements vs available memory."""
-        b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
-        n = min(self.ni, 30)  # extrapolate from 30 random images
-        for _ in range(n):
-            im = cv2.imread(random.choice(self.im_files))  # sample image
-            ratio = self.imgsz / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
-            b += im.nbytes * ratio**2
-        mem_required = b * self.ni / n * (1 + safety_margin)  # GB required to cache dataset into RAM
-        mem = psutil.virtual_memory()
-        success = mem_required < mem.available  # to cache or not to cache, that is the question
-        if not success:
-            self.cache = None
-            LOGGER.info(
-                f"{self.prefix}{mem_required / gb:.1f}GB RAM required to cache images "
-                f"with {int(safety_margin * 100)}% safety margin but only "
-                f"{mem.available / gb:.1f}/{mem.total / gb:.1f}GB available, not caching images ⚠️"
-            )
-        return success
 
     def set_rectangle(self):
         """Sets the shape of bounding boxes for YOLO detections as rectangles."""
@@ -418,6 +396,24 @@ DEFAULT_CFG = IterableSimpleNamespace(**DEFAULT_CFG_DICT)
             ```
         """
         raise NotImplementedError
+    
+    def cache_images(self):
+        """Cache images to memory or disk."""
+        b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
+        fcn, storage = (self.load_image, "RAM")
+        with ThreadPool(NUM_THREADS) as pool:
+            results = pool.imap(fcn, range(self.ni))
+            pbar = TQDM(enumerate(results), total=self.ni, disable=LOCAL_RANK > 0)
+            for i, x in pbar:
+                if self.cache == "disk":
+                    b += self.npy_files[i].stat().st_size
+                else:  # 'ram'
+                    self.ims[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                    b += self.ims[i].nbytes
+                pbar.desc = f"{self.prefix}Caching images ({b / gb:.1f}GB {storage})"
+            pbar.close()
+
+
 
 class YOLODataset(BaseDataset):
     """
@@ -564,9 +560,7 @@ class YOLODataset(BaseDataset):
                 return_keypoint=self.use_keypoints,
                 return_obb= True,
                 batch_idx=True,
-                mask_ratio=hyp.mask_ratio,
-                mask_overlap=hyp.overlap_mask,
-                bgr=hyp.bgr if self.augment else 0.0,  # only affect training.
+                bgr= 0.0,  # only affect training.
             )
         )
         return transforms
