@@ -66,26 +66,7 @@ def colorstr(*input):
     return "".join(colors[x] for x in args) + f"{string}" + colors["end"]
 
 
-def build_yolo_dataset(cfg, img_path, batch, data, mode="train", rect=False, stride=32, multi_modal=False):
-    """Build YOLO Dataset."""
-    dataset = YOLODataset
-    return dataset(
-        img_path=img_path,
-        imgsz=cfg.imgsz,
-        batch_size=batch,
-        augment=mode == "train",  # augmentation
-        hyp=cfg,  # TODO: probably add a get_hyps_from_cfg function
-        rect=cfg.rect or rect,  # rectangular batches
-        cache=cfg.cache or None,
-        single_cls=cfg.single_cls or False,
-        stride=int(stride),
-        pad=0.0 if mode == "train" else 0.5,
-        prefix=colorstr(f"{mode}: "),
-        task=cfg.task,
-        classes=cfg.classes,
-        data=data,
-        fraction=cfg.fraction if mode == "train" else 1.0,
-    )
+
 
 
 
@@ -136,7 +117,6 @@ def _to_batch(batch_size, _img_size , imgs: List[torch.Tensor], device) -> torch
 
 def images_to_tensor(images) -> torch.Tensor:
     image_list = [x.unsqueeze(0) for x in images]
-    
     images_tensor = torch.cat(image_list, 0).half()
     return images_tensor
     
@@ -158,37 +138,11 @@ def rbox__xyconto_xywhr(rboxes):
     
 
 
-class Yolov8obbDataLoader(dataloader.DataLoader):
-    
-    '''
-        Dataloader for Yolov8obb worker
-
-    '''
-    def __init__(self,*arg,**kwargs):
-        pass
-        
 
 
 
 
 
-# Yolov8 Data Augmentaion
-def Yolov8Transforms():
-    return transforms.Compose([
-        transforms.Resize((640,640)),
-        transforms.ToTensor()
-    ])
-
-
-labels = get_label_from_folder('./Labels')
-print(type(labels))
-print(labels[0][0][1:9])
-
-
-#TrainDataLoader = dataloader(TrainDataset,batch_size = 1,shuffle = True,num_workers = 4)
-
-
-#TrainDataloader = Yolov8obbDataLoader(TrainDataset,batch_size = 32,shuffle = True,num_workers = 4)
 
 
 

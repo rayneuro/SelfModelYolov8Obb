@@ -5,7 +5,7 @@ import os
 import subprocess
 import time
 import warnings
-from torch_utils import *
+#from torch_utils import *
 from checks import *
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -13,6 +13,7 @@ from pathlib import Path
 from dataset import *
 
 
+from dataloader import *
 from tensorboard import callbacks
 from buildmodel import *
 import warnings
@@ -23,6 +24,51 @@ from torch import nn, optim
 from utils import *
 from tasks import *
 from plotting import *
+import sys
+
+
+
+
+
+SimpleNamespace = type(sys.implementation)
+
+
+class IterableSimpleNamespace(SimpleNamespace):
+    """Ultralytics IterableSimpleNamespace is an extension class of SimpleNamespace that adds iterable functionality and
+    enables usage with dict() and for loops.
+    """
+
+    def __iter__(self):
+        """Return an iterator of key-value pairs from the namespace's attributes."""
+        return iter(vars(self).items())
+
+    def __str__(self):
+        """Return a human-readable string representation of the object."""
+        return "\n".join(f"{k}={v}" for k, v in vars(self).items())
+
+    def __getattr__(self, attr):
+        """Custom attribute access error message with helpful information."""
+        name = self.__class__.__name__
+        raise AttributeError(
+            f"""
+            '{name}' object has no attribute '{attr}'. This may be caused by a modified or out of date 
+            'default.yaml' file
+            """
+        )
+
+    def get(self, key, default=None):
+        """Return the value of the specified key if it exists; otherwise, return the default value."""
+        return getattr(self, key, default)
+
+
+
+# Default configuration
+DEFAULT_CFG_DICT = yaml_load(DEFAULT_CFG_PATH)
+for k, v in DEFAULT_CFG_DICT.items():
+    if isinstance(v, str) and v.lower() == "none":
+        DEFAULT_CFG_DICT[k] = None
+DEFAULT_CFG_KEYS = DEFAULT_CFG_DICT.keys()
+DEFAULT_CFG = IterableSimpleNamespace(**DEFAULT_CFG_DICT)
 
 def get_save_dir():
     """Return save_dir as created from train/val/predict arguments."""
@@ -175,6 +221,142 @@ def check_det_dataset(dataset, autodownload=True):
     return data  # dictionary
 
 
+
+
+
+cfg = {
+
+    'task': 'detect', # (str) YOLO task, i.e. detect, segment, classify, pose
+    'mode': 'train', # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark
+    # Train settings -------------------------------------------------------------------------------------------------------
+    'model': 'Yolov8l',# (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
+    'data' : ('./dataset' , True) ,# (str, optional) path to data file, i.e. coco8.yaml
+    'epochs': 100, # (int) number of epochs to train for
+    'time' : 123,#, (float, optional) number of hours to train for, overrides epochs if supplied
+    'patience' : 100 ,# (int) epochs to wait for no observable improvement for early stopping of training
+    'batch': 16 ,# (int) number of images per batch (-1 for AutoBatch)
+    'imgsz': 640 ,# (int | list) input images size as int for train and val modes, or list[w,h] for predict and export modes
+    'save': True ,# (bool) save train checkpoints and predict results
+    'save_period': -1, # (int) Save checkpoint every x epochs (disabled if < 1)
+    'cache': False ,# (bool) True/ram, disk or False. Use cache for data loading
+    'device': 'cuda device=0',# (int | str | list, optional) device to run on, i.e. cuda device=0 or device=0,1,2,3 or device=cpu
+    'workers': 8, # (int) number of worker threads for data loading (per RANK if DDP)
+    'project': 'Stomatadetect',# (str, optional) project name
+    'name:' :'Yolov8obb' ,# (str, optional) experiment name, results saved to 'project/name' directory
+    'exist_ok': False, # (bool) whether to overwrite existing experiment
+    'pretrained': True, # (bool | str) whether to use a pretrained model (bool) or a model to load weights from (str)
+    'optimizer': 'AdamW', # (str) optimizer to use, choices=[SGD, Adam, Adamax, AdamW, NAdam, RAdam, RMSProp, auto]
+    'verbose': True ,# (bool) whether to print verbose output
+    'seed': 0 ,# (int) random seed for reproducibility
+    'deterministic': True ,# (bool) whether to enable deterministic mode
+    'single_cls': False ,# (bool) train multi-class data as single-class
+    'rect': False ,# (bool) rectangular training if mode='train' or rectangular validation if mode='val'
+    'cos_lr': False ,# (bool) use cosine learning rate scheduler
+    'close_mosaic': 10 ,# (int) disable mosaic augmentation for final epochs (0 to disable)
+    'resume': False ,# (bool) resume training from last checkpoint
+    'amp': True, # (bool) Automatic Mixed Precision (AMP) training, choices=[True, False], True runs AMP check
+    'fraction': 1.0, # (float) dataset fraction to train on (default is 1.0, all images in train set)
+    'profile': False, # (bool) profile ONNX and TensorRT speeds during training for loggers
+    'freeze': None ,# (int | list, optional) freeze first n layers, or freeze list of layer indices during training
+    'multi_scale': False, # (bool) Whether to use multiscale during training
+    # Segmentation
+    'overlap_mask': True ,# (bool) masks should overlap during training (segment train only)
+    'mask_ratio': 4 ,# (int) mask downsample ratio (segment train only)
+    # Classification
+    'dropout': 0.0 ,# (float) use dropout regularization (classify train only)
+
+    # Val/Test settings ----------------------------------------------------------------------------------------------------
+    'val': True ,# (bool) validate/test during training
+    'split': 'val', # (str) dataset split to use for validation, i.e. 'val', 'test' or 'train'
+    'save_json': False ,# (bool) save results to JSON file
+    'save_hybrid': False, # (bool) save hybrid version of labels (labels + additional predictions)
+    'conf':  0.5,# (float, optional) object confidence threshold for detection (default 0.25 predict, 0.001 val)
+    'iou': 0.7 ,# (float) intersection over union (IoU) threshold for NMS
+    'max_det': 300 ,# (int) maximum number of detections per image
+    'half': False ,# (bool) use half precision (FP16)
+    'dnn': False ,# (bool) use OpenCV DNN for ONNX inference
+    'plots': True ,# (bool) save plots and images during train/val
+
+    # Predict settings -----------------------------------------------------------------------------------------------------
+    'source': './datasets' ,# (str, optional) source directory for images or videos
+    'vid_stride': 1 ,# (int) video frame-rate stride
+    'stream_buffer': False, # (bool) buffer all streaming frames (True) or return the most recent frame (False)
+    'visualize': False ,# (bool) visualize model features
+    'augment': False ,# (bool) apply image augmentation to prediction sources
+    'agnostic_nms': False ,# (bool) class-agnostic NMS
+    'classes': [0,1,2], # (int | list[int], optional) filter results by class, i.e. classes=0, or classes=[0,2,3]
+    'retina_masks': False, # (bool) use high-resolution segmentation masks
+    'embed': [None],# (list[int], optional) return feature vectors/embeddings from given layers
+
+    # Visualize settings ---------------------------------------------------------------------------------------------------
+    'show': False, # (bool) show predicted images and videos if environment allows
+    'save_frames': False, # (bool) save predicted individual video frames
+    'save_txt': False ,# (bool) save results as .txt file
+    'save_conf': False ,# (bool) save results with confidence scores
+    'save_crop': False ,# (bool) save cropped images with results
+    'show_labels': True ,# (bool) show prediction labels, i.e. 'person'
+    'show_conf': True ,# (bool) show prediction confidence, i.e. '0.99'
+    'show_boxes': True ,# (bool) show prediction boxes
+    'line_width': None,# (int, optional) line width of the bounding boxes. Scaled to image size if None.
+
+    # Export settings ------------------------------------------------------------------------------------------------------
+    'format': 'torchscript', # (str) format to export to
+    'keras': False ,# (bool) use Kera=s
+    'optimize': False, # (bool) TorchScript: optimize for mobile
+    'int8': False ,# (bool) CoreML/TF INT8 quantization
+    'dynamic': False, # (bool) ONNX/TF/TensorRT: dynamic axes
+    'simplify': False, # (bool) ONNX: simplify model
+    'opset': [1,False] ,# (int, optional) ONNX: opset version
+    'workspace': 4 , # (int) TensorRT: workspace size (GB)
+    'nms': False ,# (bool) CoreML: add NMS
+
+    # Hyperparameters ------------------------------------------------------------------------------------------------------
+    'lr0': 0.01, # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
+    'lrf': 0.01, # (float) final learning rate (lr0 * lrf)
+    'momentum': 0.937, # (float) SGD momentum/Adam beta1
+    'weight_decay': 0.0005, # (float) optimizer weight decay 5e-4
+    'warmup_epochs': 3.0 ,# (float) warmup epochs (fractions ok)
+    'warmup_momentum': 0.8, # (float) warmup initial momentum
+    'warmup_bias_lr': 0.1 ,# (float) warmup initial bias lr
+    'box': 7.5 ,# (float) box loss gain
+    'cls': 0.5 ,# (float) cls loss gain (scale with pixels)
+    'dfl': 1.5 ,# (float) dfl loss gain
+    'pose': 12.0, # (float) pose loss gain
+    'kobj': 1.0 ,# (float) keypoint obj loss gain
+    'label_smoothing': 0.0 ,# (float) label smoothing (fraction)
+    'nbs': 64 ,# (int) nominal batch size
+    'hsv_h': 0.015, # (float) image HSV-Hue augmentation (fraction)
+    'hsv_s': 0.7 ,# (float) image HSV-Saturation augmentation (fraction)
+    'hsv_v': 0.4 ,# (float) image HSV-Value augmentation (fraction)
+    'degrees': 0.0 ,# (float) image rotation (+/- deg)
+    'translate': 0.1 ,# (float) image translation (+/- fraction)
+    'scale': 0.5, # (float) image scale (+/- gain)
+    'shear': 0.0 ,# (float) image shear (+/- deg)
+    'perspective': 0.0 ,# (float) image perspective (+/- fraction), range 0-0.001
+    'flipud': 0.0 ,# (float) image flip up-down (probability)
+    'fliplr': 0.5, # (float) image flip left-right (probability)
+    'bgr': 0.0 ,# (float) image channel BGR (probability)
+    'mosaic': 1.0 ,# (float) image mosaic (probability)
+    'mixup': 0.0 ,# (float) image mixup (probability)
+    'copy_paste': 0.0 ,# (float) segment copy-paste (probability)
+    'auto_augment': None ,# (str) auto augmentation policy for classification (randaugment, autoaugment, augmix)
+    'erasing': 0.4 ,# (float) probability of random erasing during classification training (0-0.9), 0 means no erasing, must be less than 1.0.
+    'crop_fraction': 1.0 ,# (float) image crop fraction for classification (0.1-1), 1.0 means no crop, must be greater than 0.
+
+    # Custom config.yaml ---------------------------------------------------------------------------------------------------
+    'cfg': None ,# (str, optional) for overriding defaults.yaml
+
+    
+    
+
+}
+
+
+
+
+
+
+
 class BaseTrainer:
     """
     BaseTrainer.
@@ -211,7 +393,7 @@ class BaseTrainer:
         loss_names (list): List of loss names.
         csv (Path): Path to results CSV file.
     """
-    def __init__(self, args,  overrides=None, _callbacks=None , load_address = None):
+    def __init__(self, args,  cfg = DEFAULT_CFG ,overrides=None, _callbacks=None ):
         """
         Initializes the BaseTrainer class.
 
@@ -221,34 +403,40 @@ class BaseTrainer:
         """
         
         #self.check_resume(overrides)
-        self.device = select_device(self.args.device, self.args.batch)
-        self.load_address = load_address
+        self.args = cfg # cfg is Dict
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda:0')#select_device(self.args.device, self.args.batch)
+        else:
+            self.device = torch.device('cpu')
+        
+        
         self.validator = None
         self.metrics = None
         self.plots = {}
-        init_seeds(self.args.seed + 1 , deterministic=self.args.deterministic)
+        
+        init_seeds(self.args['seed'] + 1 , deterministic=self.args.deterministic)
 
         # Dirs
-        self.save_dir = get_save_dir()
-        self.args.name = 'Result'  # update name for loggers
+        self.save_dir = Path('./results')
+        self.args.name = self.save_dir.name # update name for loggers
         self.wdir = self.save_dir / "weights"  # weights dir
         if RANK in {-1, 0}:
             self.wdir.mkdir(parents=True, exist_ok=True)  # make dir
-            self.args.save_dir = str(self.save_dir)
+            self.args['save_dir'] = str(self.save_dir)
             yaml_save(self.save_dir / "args.yaml", vars(self.args))  # save run args
         self.last, self.best = self.wdir / "last.pt", self.wdir / "best.pt"  # checkpoint paths
         self.save_period = self.args.save_period
 
         
-        self.batch_size = self.args.batch
-        self.epochs = self.args.epochs
+        self.batch_size = self.args['batch']
+        self.epochs = self.args['epochs']
         self.start_epoch = 0
         if RANK == -1:
             print("One GPU CUDA : ")
 
         # Device
         if self.device.type in {"cpu", "mps"}:
-            self.args.workers = 0  # faster CPU training as time dominated by inference, not dataloading
+            self.args['workers'] = 0  # faster CPU training as time dominated by inference, not dataloading
 
         # Model and Dataset
         self.model = ModelYolov8obb  # add suffix, i.e. yolov8n -> yolov8n.pt
@@ -268,66 +456,23 @@ class BaseTrainer:
         self.csv = self.save_dir / "results.csv"
         self.plot_idx = [0, 1, 2]
 
-        # Callbacks
-        self.callbacks = _callbacks or callbacks.get_default_callbacks()
-        if RANK in {-1, 0}:
-            callbacks.add_integration_callbacks(self)
+        # Callbacks Cancel
+        
+    
 
-    def add_callback(self, event: str, callback):
-        """Appends the given callback."""
-        self.callbacks[event].append(callback)
 
-    def set_callback(self, event: str, callback):
-        """Overrides the existing callbacks with the given callback."""
-        self.callbacks[event] = [callback]
-
-    def run_callbacks(self, event: str):
-        """Run all existing callbacks associated with a particular event."""
-        for callback in self.callbacks.get(event, []):
-            callback(self)
+    
 
     def train(self):
-        """Allow device='', device=None on Multi-GPU systems to default to device=0."""
-        if isinstance(self.args.device, str) and len(self.args.device):  # i.e. device='0' or device='0,1,2,3'
-            world_size = len(self.args.device.split(","))
-        elif isinstance(self.args.device, (tuple, list)):  # i.e. device=[0, 1, 2, 3] (multi-GPU from CLI is list)
-            world_size = len(self.args.device)
-        elif torch.cuda.is_available():  # i.e. device=None or device='' or device=number
-            world_size = 1  # default to device 0
-        else:  # i.e. device='cpu' or 'mps'
-            world_size = 0
-
-        # Run subprocess if DDP training, else train normally
-        if world_size > 1 and "LOCAL_RANK" not in os.environ:
-            # Argument checks
-            if self.args.rect:
-                warnings.warn("WARNING ⚠️ 'rect=True' is incompatible with Multi-GPU training, setting 'rect=False'")
-                self.args.rect = False
-            if self.args.batch == -1:
-                warnings.warn(
-                    "WARNING ⚠️ 'batch=-1' for AutoBatch is incompatible with Multi-GPU training, setting "
-                    "default 'batch=16'"
-                )
-                self.args.batch = 16
-
-            '''
-            # Command
-            cmd, file = generate_ddp_command(world_size, self)
-            try:
-                LOGGER.info(f'{colorstr("DDP:")} debug command {" ".join(cmd)}')
-                subprocess.run(cmd, check=True)
-            except Exception as e:
-                raise e
-            finally:
-                ddp_cleanup(self, str(file))'''
-
-        else:
-            self._do_train(world_size)
+        
+        world_size = 1  # default to device 0
+       
+        self._do_train(world_size)
 
     def _setup_scheduler(self):
         """Initialize training learning rate scheduler."""
-        if self.args.cos_lr:
-            self.lf = one_cycle(1, self.args.lrf, self.epochs)  # cosine 1->hyp['lrf']
+        if self.args['cos_lr']:
+            self.lf = one_cycle(1, self.args['lrf'], self.epochs)  # cosine 1->hyp['lrf']
         else:
             self.lf = lambda x: max(1 - x / self.epochs, 0) * (1.0 - self.args.lrf) + self.args.lrf  # linear
         self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
@@ -366,23 +511,21 @@ class BaseTrainer:
                 v.requires_grad = True
 
         # Check AMP
-        '''
-        self.amp = torch.tensor(self.args.amp).to(self.device)  # True or False
-        if self.amp and RANK in {-1, 0}:  # Single-GPU and DDP
-            callbacks_backup = callbacks.default_callbacks.copy()  # backup callbacks as check_amp() resets them
-            self.amp = torch.tensor(check_amp(self.model), device=self.device)
-            callbacks.default_callbacks = callbacks_backup  # restore callbacks'''
+        
+        
+        
+            
         '''
         if RANK > -1 and world_size > 1:  # DDP
             dist.broadcast(self.amp, src=0)  # broadcast the tensor from rank 0 to all other ranks (returns None)
         '''
         
-        self.scaler = torch.cuda.amp.GradScaler(enabled=self.amp)
+        
         
 
         # Check imgsz
         gs = max(int(self.model.stride.max() if hasattr(self.model, "stride") else 32), 32)  # grid size (max stride)
-        self.args.imgsz = check_imgsz(self.args.imgsz, stride=gs, floor=gs, max_dim=1)
+        self.args['imgsz'] = check_imgsz(self.args['imgsz'], stride=gs, floor=gs, max_dim=1)
         self.stride = gs  # for multiscale training
 
         # Batch size
@@ -394,19 +537,19 @@ class BaseTrainer:
         if RANK in {-1, 0}:
             # Note: When training DOTA dataset, double batch size could get OOM on images with >2000 objects.
             self.test_loader = self.get_dataloader(
-                self.testset, batch_size=batch_size if self.args.task == "obb" else batch_size * 2, rank=-1, mode="val"
+                self.testset, batch_size=batch_size if self.args['task'] == "obb" else batch_size * 2, rank=-1, mode="val"
             )
             self.validator = self.get_validator()
             metric_keys = self.validator.metrics.keys + self.label_loss_items(prefix="val")
             self.metrics = dict(zip(metric_keys, [0] * len(metric_keys)))
             self.ema = ModelEMA(self.model)
-            if self.args.plots:
+            if self.args['plots']:
                 self.plot_training_labels()
 
         # Optimizer
-        self.accumulate = max(round(self.args.nbs / self.batch_size), 1)  # accumulate loss before optimizing
+        self.accumulate = max(round(self.args['nbs'] / self.batch_size), 1)  # accumulate loss before optimizing
 
-        weight_decay = self.args.weight_decay * self.batch_size * self.accumulate / self.args.nbs  # scale weight_decay
+        weight_decay = self.args['weight_decay'] * self.batch_size * self.accumulate / self.args['nbs']  # scale weight_decay
 
         iterations = math.ceil(len(self.train_loader.dataset) / max(self.batch_size, self.args.nbs)) * self.epochs
 
@@ -431,14 +574,14 @@ class BaseTrainer:
         self._setup_train(world_size)
 
         nb = len(self.train_loader)  # number of batches
-        nw = max(round(self.args.warmup_epochs * nb), 100) if self.args.warmup_epochs > 0 else -1  # warmup iterations
+        nw = max(round(self.args['warmup_epochs'] * nb), 100) if self.args['warmup_epoachs'] > 0 else -1  # warmup iterations
         last_opt_step = -1
         self.epoch_time = None
         self.epoch_time_start = time.time()
         self.train_time_start = time.time()
         self.run_callbacks("on_train_start")
         LOGGER.info(
-            f'Image sizes {self.args.imgsz} train, {self.args.imgsz} val\n'
+            f'Image sizes {self.args['imgsz']} train, {self.args.imgsz} val\n'
             f'Using {self.train_loader.num_workers * (world_size or 1)} dataloader workers\n'
             f"Logging results to {colorstr('bold', self.save_dir)}\n"
             f'Starting training for ' + (f"{self.args.time} hours..." if self.args.time else f"{self.epochs} epochs...")
@@ -554,7 +697,7 @@ class BaseTrainer:
                 self._setup_scheduler()
                 self.scheduler.last_epoch = self.epoch  # do not move
                 self.stop |= epoch >= self.epochs  # stop if exceeded epochs
-            self.run_callbacks("on_fit_epoch_end")
+            
             gc.collect()
             torch.cuda.empty_cache()  # clear GPU memory at end of epoch, may help reduce CUDA out of memory errors
 
@@ -574,12 +717,15 @@ class BaseTrainer:
                 f"{(time.time() - self.train_time_start) / 3600:.3f} hours."
             )
             self.final_eval()
-            if self.args.plots:
+            if self.args['plots']:
                 self.plot_metrics()
-            self.run_callbacks("on_train_end")
+            
         gc.collect()
         torch.cuda.empty_cache()
-        self.run_callbacks("teardown")
+        
+
+
+
 
     def save_model(self):
         """Save model training checkpoints with additional metadata."""
@@ -626,7 +772,7 @@ class BaseTrainer:
             if "yaml_file" in data:
                     self.args.data = data["yaml_file"]  # for validating 'yolo train data=url.zip' usage
         except Exception as e:
-            raise RuntimeError(emojis(f"Dataset '{clean_url(self.args.data)}' error ❌ {e}")) from e
+            raise RuntimeError(emojis(f"Dataset  error ❌ {e}")) from e
         self.data = data
         return data["train"], data.get("val") or data.get("test")
 
@@ -738,7 +884,7 @@ class BaseTrainer:
                     self.validator.args.plots = self.args.plots
                     self.metrics = self.validator(model=f)
                     self.metrics.pop("fitness", None)
-                    self.run_callbacks("on_fit_epoch_end")
+                    print('Model Eval')
 
 
     '''
@@ -908,7 +1054,7 @@ class DetectionTrainer(BaseTrainer):
         if getattr(dataset, "rect", False) and shuffle:
             LOGGER.warning("WARNING ⚠️ 'rect=True' is incompatible with DataLoader shuffle, setting shuffle=False")
             shuffle = False
-        workers = self.args.workers if mode == "train" else self.args.workers * 2
+        workers = self.args['workers'] if mode == "train" else self.args['workers'] * 2
         return build_dataloader(dataset, batch_size, workers, shuffle, rank)  # return dataloader
 
     def preprocess_batch(self, batch):
@@ -951,7 +1097,7 @@ class DetectionTrainer(BaseTrainer):
         """Returns a DetectionValidator for YOLO model validation."""
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
         return yolo.detect.DetectionValidator(
-            self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
+            self.test_loader, save_dir=self.save_dir, args= copy(self.args), _callbacks=self.callbacks
         )
 
     def label_loss_items(self, loss_items=None, prefix="train"):
@@ -998,6 +1144,85 @@ class DetectionTrainer(BaseTrainer):
         boxes = np.concatenate([lb["bboxes"] for lb in self.train_loader.dataset.labels], 0)
         cls = np.concatenate([lb["cls"] for lb in self.train_loader.dataset.labels], 0)
         plot_labels(boxes, cls.squeeze(), names=self.data["names"], save_dir=self.save_dir, on_plot=self.on_plot)
+
+
+class Colors:
+    """
+    Ultralytics default color palette https://ultralytics.com/.
+
+    This class provides methods to work with the Ultralytics color palette, including converting hex color codes to
+    RGB values.
+
+    Attributes:
+        palette (list of tuple): List of RGB color values.
+        n (int): The number of colors in the palette.
+        pose_palette (np.ndarray): A specific color palette array with dtype np.uint8.
+    """
+
+    def __init__(self):
+        """Initialize colors as hex = matplotlib.colors.TABLEAU_COLORS.values()."""
+        hexs = (
+            "FF3838",
+            "FF9D97",
+            "FF701F",
+            "FFB21D",
+            "CFD231",
+            "48F90A",
+            "92CC17",
+            "3DDB86",
+            "1A9334",
+            "00D4BB",
+            "2C99A8",
+            "00C2FF",
+            "344593",
+            "6473FF",
+            "0018EC",
+            "8438FF",
+            "520085",
+            "CB38FF",
+            "FF95C8",
+            "FF37C7",
+        )
+        self.palette = [self.hex2rgb(f"#{c}") for c in hexs]
+        self.n = len(self.palette)
+        self.pose_palette = np.array(
+            [
+                [255, 128, 0],
+                [255, 153, 51],
+                [255, 178, 102],
+                [230, 230, 0],
+                [255, 153, 255],
+                [153, 204, 255],
+                [255, 102, 255],
+                [255, 51, 255],
+                [102, 178, 255],
+                [51, 153, 255],
+                [255, 153, 153],
+                [255, 102, 102],
+                [255, 51, 51],
+                [153, 255, 153],
+                [102, 255, 102],
+                [51, 255, 51],
+                [0, 255, 0],
+                [0, 0, 255],
+                [255, 0, 0],
+                [255, 255, 255],
+            ],
+            dtype=np.uint8,
+        )
+
+    def __call__(self, i, bgr=False):
+        """Converts hex color codes to RGB values."""
+        c = self.palette[int(i) % self.n]
+        return (c[2], c[1], c[0]) if bgr else c
+
+    @staticmethod
+    def hex2rgb(h):
+        """Converts hex color codes to RGB values (i.e. default PIL order)."""
+        return tuple(int(h[1 + i : 1 + i + 2], 16) for i in (0, 2, 4))
+    
+
+colors = Colors()  # create instance for 'from utils.plots import colors'
 
 def plot_labels(boxes, cls, names=(), save_dir=Path(""), on_plot=None):
     """Plot training labels including class histograms and box statistics."""

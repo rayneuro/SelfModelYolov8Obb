@@ -1,5 +1,5 @@
 import buildmodel
-import loaddata
+import selfloaddata
 import numpy as np
 import torch
 import loss
