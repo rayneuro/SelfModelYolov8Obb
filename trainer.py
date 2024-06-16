@@ -346,8 +346,7 @@ cfg = {
     # Custom config.yaml ---------------------------------------------------------------------------------------------------
     'cfg': None ,# (str, optional) for overriding defaults.yaml
 
-    
-    
+
 
 }
 
@@ -1093,12 +1092,13 @@ class DetectionTrainer(BaseTrainer):
             model.load(weights)
         return model
 
+    '''
     def get_validator(self):
         """Returns a DetectionValidator for YOLO model validation."""
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
         return yolo.detect.DetectionValidator(
             self.test_loader, save_dir=self.save_dir, args= copy(self.args), _callbacks=self.callbacks
-        )
+        )'''
 
     def label_loss_items(self, loss_items=None, prefix="train"):
         """
