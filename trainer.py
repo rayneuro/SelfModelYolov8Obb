@@ -363,7 +363,7 @@ class BaseTrainer:
     A base class for creating trainers.
 
     Attributes:
-        args (SimpleNamespace): Configuration for the trainer.
+        args (Dict) : Hyperparameters,
         validator (BaseValidator): Validator instance.
         model (nn.Module): Model instance.
         callbacks (defaultdict): Dictionary of callbacks.
@@ -1087,7 +1087,7 @@ class DetectionTrainer(BaseTrainer):
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         """Return a YOLO detection model."""
-        model = ModelYolov8obb()
+        model = ModelYolov8obb(args = self.args)
         if weights:
             model.load(weights)
         return model
@@ -1144,6 +1144,9 @@ class DetectionTrainer(BaseTrainer):
         boxes = np.concatenate([lb["bboxes"] for lb in self.train_loader.dataset.labels], 0)
         cls = np.concatenate([lb["cls"] for lb in self.train_loader.dataset.labels], 0)
         plot_labels(boxes, cls.squeeze(), names=self.data["names"], save_dir=self.save_dir, on_plot=self.on_plot)
+
+
+
 
 
 class Colors:

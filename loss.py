@@ -65,7 +65,7 @@ class BboxLoss(nn.Module):
     def __init__(self, reg_max, use_dfl=False):
         """Initialize the BboxLoss module with regularization maximum and DFL settings."""
         super().__init__()
-        self.reg_max = reg_max
+        self.reg_max = 16
         self.use_dfl = use_dfl
 
     def forward(self, pred_dist, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask):
@@ -112,25 +112,26 @@ class RotatedBboxLoss(BboxLoss):
 class v8DetectionLoss:
     """Criterion class for computing training losses."""
 
-    def __init__(self, model):  # model must be de-paralleled
+    def __init__(self, model ,args):  # model must be de-paralleled
         """Initializes v8DetectionLoss with the model, defining model-related properties and BCE loss function."""
-        device = next(model.parameters()).device  # get model device
-        h = model.args  # hyperparameters
+        #device = model.device  # get model device
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        h = args  # hyperparameters
 
-        m = model.model[-1]  # Detect() module
+        #m = model.model[-1]  # Detect() module
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
         self.hyp = h
-        self.stride = m.stride  # model strides
-        self.nc = m.nc  # number of classes
-        self.no = m.nc + m.reg_max * 4
-        self.reg_max = m.reg_max
+        self.stride = args['stride']  # model strides
+        self.nc = args['nc']  # number of classes
+        self.no = args['nc'] + args['reg_max'] * 4
+        self.reg_max = args['reg_max']
         self.device = device
 
-        self.use_dfl = m.reg_max > 1
+        self.use_dfl = args['reg_max'] > 1
 
         self.assigner = TaskAlignedAssigner(topk=10, num_classes=self.nc, alpha=0.5, beta=6.0)
-        self.bbox_loss = BboxLoss(m.reg_max - 1, use_dfl=self.use_dfl).to(device)
-        self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
+        self.bbox_loss = BboxLoss(args['reg_max'] - 1, use_dfl=self.use_dfl).to(device)
+        self.proj = torch.arange(args['reg_max'], dtype=torch.float, device=device)
 
     def preprocess(self, targets, batch_size, scale_tensor):
         """Preprocesses the target counts and matches with the input batch size to output a tensor."""
@@ -212,13 +213,13 @@ class v8DetectionLoss:
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 class v8OBBLoss(v8DetectionLoss):
-    def __init__(self, model):
+    def __init__(self, model ,args ):
         """
         Initializes v8OBBLoss with model, assigner, and rotated bbox loss.
 
         Note model must be de-paralleled.
         """
-        super().__init__(model)
+        super().__init__(model , args)
         self.assigner = RotatedTaskAlignedAssigner(topk=10, num_classes=self.nc, alpha=0.5, beta=6.0)
         self.bbox_loss = RotatedBboxLoss(self.reg_max - 1, use_dfl=self.use_dfl).to(self.device)
 

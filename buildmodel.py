@@ -4,7 +4,7 @@ import torch.nn as nn
 from conv import *
 from  block import *
 from head import *
-
+from loss import *
 
 
 
@@ -12,7 +12,7 @@ from head import *
 
 class ModelYolov8obb(nn.Module):
 
-    def __init__(self, nc=80, ch = 3, arch=None, act=None): # number of classed , input channels
+    def __init__(self, nc=80, ch = 3, arch=None, act=None ,args = {}): # number of classed , input channels
         """
         YOLOv8 model.
 
@@ -22,10 +22,17 @@ class ModelYolov8obb(nn.Module):
             ch (list): Channels
             arch (str): Architecture
             act (str): Activation
+            stride (int): Stride
         """
+
+
         super(ModelYolov8obb, self).__init__()
-
-
+        
+        s = 256  # 2x min stride
+        forward = lambda x: self.forward(x)[0] # forward return function loss
+        self.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
+        args['stride'] = self.stride
+        
         
         self.names = {i: f"{i}" for i in range(self.nc)}  # default names dict
         # backbone
@@ -81,3 +88,18 @@ class ModelYolov8obb(nn.Module):
         l21x = self.c2f8(x) # l21
         
         return self.detecthead([l21x,l18x,l15x])
+    
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the model."""
+        self.args['nc'] = self.nc
+        
+        return v8OBBLoss(self,self.args) # args is a hyperparameters
+    
+    def loss(self, batch , preds =None):
+        
+        if not hasattr(self, "criterion"):
+            self.criterion = self.init_criterion()
+
+        preds = self.forward(batch["img"]) if preds is None else preds
+        return self.criterion(preds, batch)
