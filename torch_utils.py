@@ -10,25 +10,123 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Union
 import sys
-
+import re
 import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
+from importlib import metadata
+# from checks import *
 
 from utils import (
-    DEFAULT_CFG_DICT,
-    DEFAULT_CFG_KEYS,
     LOGGER,
-    PYTHON_VERSION,
-    TORCHVISION_VERSION,
-    __version__,
     colorstr,
 )
-from ultralytics.utils.checks import check_version
 
 
+
+def parse_version(version="0.0.0") -> tuple:
+    """
+    Convert a version string to a tuple of integers, ignoring any extra non-numeric string attached to the version. This
+    function replaces deprecated 'pkg_resources.parse_version(v)'.
+
+    Args:
+        version (str): Version string, i.e. '2.0.1+cpu'
+
+    Returns:
+        (tuple): Tuple of integers representing the numeric part of the version and the extra string, i.e. (2, 0, 1)
+    """
+    try:
+        return tuple(map(int, re.findall(r"\d+", version)[:3]))  # '2.0.1+cpu' -> (2, 0, 1)
+    except Exception as e:
+        LOGGER.warning(f"WARNING ⚠️ failure for parse_version({version}), returning (0, 0, 0): {e}")
+        return 0, 0, 0
+#from utils.checks import check_version
+
+def check_version(
+    current: str = "0.0.0",
+    required: str = "0.0.0",
+    name: str = "version",
+    hard: bool = False,
+    verbose: bool = False,
+    msg: str = "",
+) -> bool:
+    """
+    Check current version against the required version or range.
+
+    Args:
+        current (str): Current version or package name to get version from.
+        required (str): Required version or range (in pip-style format).
+        name (str, optional): Name to be used in warning message.
+        hard (bool, optional): If True, raise an AssertionError if the requirement is not met.
+        verbose (bool, optional): If True, print warning message if requirement is not met.
+        msg (str, optional): Extra message to display if verbose.
+
+    Returns:
+        (bool): True if requirement is met, False otherwise.
+
+    Example:
+        ```python
+        # Check if current version is exactly 22.04
+        check_version(current='22.04', required='==22.04')
+
+        # Check if current version is greater than or equal to 22.04
+        check_version(current='22.10', required='22.04')  # assumes '>=' inequality if none passed
+
+        # Check if current version is less than or equal to 22.04
+        check_version(current='22.04', required='<=22.04')
+
+        # Check if current version is between 20.04 (inclusive) and 22.04 (exclusive)
+        check_version(current='21.10', required='>20.04,<22.04')
+        ```
+    """
+    if not current:  # if current is '' or None
+        LOGGER.warning(f"WARNING ⚠️ invalid check_version({current}, {required}) requested, please check values.")
+        return True
+    elif not current[0].isdigit():  # current is package name rather than version string, i.e. current='ultralytics'
+        try:
+            name = current  # assigned package name to 'name' arg
+            current = metadata.version(current)  # get version string from package name
+        except metadata.PackageNotFoundError as e:
+            if hard:
+                raise ModuleNotFoundError((f"WARNING ⚠️ {current} package is required but not installed")) from e
+            else:
+                return False
+
+    if not required:  # if required is '' or None
+        return True
+
+    op = ""
+    version = ""
+    result = True
+    c = parse_version(current)  # '1.2.3' -> (1, 2, 3)
+    for r in required.strip(",").split(","):
+        op, version = re.match(r"([^0-9]*)([\d.]+)", r).groups()  # split '>=22.04' -> ('>=', '22.04')
+        v = parse_version(version)  # '1.2.3' -> (1, 2, 3)
+        if op == "==" and c != v:
+            result = False
+        elif op == "!=" and c == v:
+            result = False
+        elif op in {">=", ""} and not (c >= v):  # if no constraint passed assume '>=required'
+            result = False
+        elif op == "<=" and not (c <= v):
+            result = False
+        elif op == ">" and not (c > v):
+            result = False
+        elif op == "<" and not (c < v):
+            result = False
+    if not result:
+        warning = f"WARNING ⚠️ {name}{op}{version} is required, but {name}=={current} is currently installed {msg}"
+        if hard:
+            raise ModuleNotFoundError(warning)  # assert version requirements met
+        if verbose:
+            LOGGER.warning(warning)
+    return result
+
+TORCH_1_9 = check_version(torch.__version__, "1.9.0")
+TORCH_1_13 = check_version(torch.__version__, "1.13.0")
+TORCH_2_0 = check_version(torch.__version__, "2.0.0")
 
 
 try:
@@ -39,12 +137,8 @@ except ImportError:
 
 
 # Version checks (all default to version>=min_version)
-TORCH_1_9 = check_version(torch.__version__, "1.9.0")
-TORCH_1_13 = check_version(torch.__version__, "1.13.0")
-TORCH_2_0 = check_version(torch.__version__, "2.0.0")
-TORCHVISION_0_10 = check_version(TORCHVISION_VERSION, "0.10.0")
-TORCHVISION_0_11 = check_version(TORCHVISION_VERSION, "0.11.0")
-TORCHVISION_0_13 = check_version(TORCHVISION_VERSION, "0.13.0")
+
+TORCH_2_0 = torch.__version__
 
 
 @contextmanager
@@ -118,7 +212,7 @@ def select_device(device="", batch=0, newline=False, verbose=True):
     if isinstance(device, torch.device):
         return device
 
-    s = f"YOLOv{__version__} 🚀 Python-{PYTHON_VERSION} torch-{torch.__version__} "
+    s = f"YOLOv8 🚀 Python torch-{torch.__version__} "
     device = str(device).lower()
     for remove in "cuda:", "none", "(", ")", "[", "]", "'", " ":
         device = device.replace(remove, "")  # to string, 'cuda:0' -> '0' and '(0, 1)' -> '0,1'
@@ -365,6 +459,7 @@ def initialize_weights(model):
     """Initialize model weights to random values."""
     for m in model.modules():
         t = type(m)
+        print(t)
         if t is nn.Conv2d:
             pass  # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         elif t is nn.BatchNorm2d:
@@ -517,7 +612,7 @@ def strip_optimizer(f: Union[str, Path] = "best.pt", s: str = "") -> None:
 
     if hasattr(x["model"], "args"):
         x["model"].args = dict(x["model"].args)  # convert from IterableSimpleNamespace to dict
-    args = {**DEFAULT_CFG_DICT, **x["train_args"]} if "train_args" in x else None  # combine args
+    #args = {**DEFAULT_CFG_DICT, **x["train_args"]} if "train_args" in x else None  # combine args
     if x.get("ema"):
         x["model"] = x["ema"]  # replace model with ema
     for k in "optimizer", "best_fitness", "ema", "updates":  # keys
@@ -526,7 +621,7 @@ def strip_optimizer(f: Union[str, Path] = "best.pt", s: str = "") -> None:
     x["model"].half()  # to FP16
     for p in x["model"].parameters():
         p.requires_grad = False
-    x["train_args"] = {k: v for k, v in args.items() if k in DEFAULT_CFG_KEYS}  # strip non-default keys
+    x["train_args"] = {}  # strip non-default keys
     # x['model'].args = x['train_args']
     torch.save(x, s or f)
     mb = os.path.getsize(s or f) / 1e6  # file size

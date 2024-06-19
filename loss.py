@@ -147,7 +147,7 @@ class v8DetectionLoss:
                 n = matches.sum()
                 if n:
                     out[j, :n] = targets[matches, 1:]
-            out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
+            out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor)) # mul In-place version
         return out
 
     def bbox_decode(self, anchor_points, pred_dist):
@@ -213,7 +213,7 @@ class v8DetectionLoss:
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 class v8OBBLoss(v8DetectionLoss):
-    def __init__(self, model ,args ):
+    def __init__(self, model ,args):
         """
         Initializes v8OBBLoss with model, assigner, and rotated bbox loss.
 
@@ -223,7 +223,7 @@ class v8OBBLoss(v8DetectionLoss):
         self.assigner = RotatedTaskAlignedAssigner(topk=10, num_classes=self.nc, alpha=0.5, beta=6.0)
         self.bbox_loss = RotatedBboxLoss(self.reg_max - 1, use_dfl=self.use_dfl).to(self.device)
 
-    def preprocess(self, targets, batch_size, scale_tensor):
+    def preprocess(self, targets, batch_size, scale_tensor): # targets
         """Preprocesses the target counts and matches with the input batch size to output a tensor."""
         if targets.shape[0] == 0:
             out = torch.zeros(batch_size, 0, 6, device=self.device)

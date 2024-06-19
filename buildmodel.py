@@ -5,6 +5,7 @@ from conv import *
 from  block import *
 from head import *
 from loss import *
+from torch_utils import *
 
 
 
@@ -12,7 +13,7 @@ from loss import *
 
 class ModelYolov8obb(nn.Module):
 
-    def __init__(self, nc=80, ch = 3, arch=None, act=None ,args = {}): # number of classed , input channels
+    def __init__(self, nc=80, ch = 3, arch=None, act=None ,args = dict): # number of classed , input channels
         """
         YOLOv8 model.
 
@@ -28,12 +29,10 @@ class ModelYolov8obb(nn.Module):
 
         super(ModelYolov8obb, self).__init__()
         
-        s = 256  # 2x min stride
-        forward = lambda x: self.forward(x)[0] # forward return function loss
-        self.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
-        args['stride'] = self.stride
+        self.args = args
         
-        
+        self.nc = nc
+        self.args['nc'] = self.nc
         self.names = {i: f"{i}" for i in range(self.nc)}  # default names dict
         # backbone
         self.conv1 = Conv(3, 64, 3, 2) # l0  80x320x320
@@ -61,6 +60,15 @@ class ModelYolov8obb(nn.Module):
         self.concat4 = Concat(dimension = 1) # l20
         self.c2f8 = C2f(1024, 1024, n = 3, shortcut = False, g = 1, e = 0.5) # l21
         self.detecthead  = OBB(nc = nc, ne = 1, ch = (256,512,512)) # l22 
+
+        s = 256  # 2x min stride
+        '''
+        forward = lambda x: self.forward(x)[0] # forward return function loss
+        self.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
+        args['stride'] = self.stride'''
+
+        initialize_weights(self)
+        
 
     
     def forward(self, x):
@@ -92,12 +100,28 @@ class ModelYolov8obb(nn.Module):
 
     def init_criterion(self):
         """Initialize the loss criterion for the model."""
-        self.args['nc'] = self.nc
+        
         
         return v8OBBLoss(self,self.args) # args is a hyperparameters
     
+    @staticmethod
+    def _descale_pred(p, flips, scale, img_size, dim=1):
+        """De-scale predictions following augmented inference (inverse operation)."""
+        p[:, :4] /= scale  # de-scale
+        x, y, wh, cls = p.split((1, 1, 2, p.shape[dim] - 4), dim)
+        if flips == 2:
+            y = img_size[0] - y  # de-flip ud
+        elif flips == 3:
+            x = img_size[1] - x  # de-flip lr
+        return torch.cat((x, y, wh, cls), dim)
+    
+    
+
     def load(self, weights, verbose =True):
-        pass
+        '''
+            weights Load model from weights
+        '''
+        weights = torch.load(weights, map_location=lambda storage, loc: storage)
     
     def _apply(self, fn):
         """
@@ -124,3 +148,6 @@ class ModelYolov8obb(nn.Module):
 
         preds = self.forward(batch["img"]) if preds is None else preds
         return self.criterion(preds, batch)
+    
+model  = ModelYolov8obb(args ={})
+print(model)
