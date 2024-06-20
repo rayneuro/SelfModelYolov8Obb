@@ -543,7 +543,7 @@ class YOLODataset(BaseDataset):
                 lb["segments"] = []
         if len_cls == 0:
             LOGGER.warning(f"WARNING ⚠️ No labels found in {cache_path}, training may not work correctly. ")
-        return labels
+        return labels跟慕慕這是
 
     def build_transforms(self, hyp=None):
         """Builds and appends transforms to the list.
@@ -625,18 +625,18 @@ def build_yolo_dataset(cfg, img_path, batch, data, mode="train", rect=False, str
     dataset = YOLODataset
     return dataset(
         img_path=img_path,
-        imgsz=cfg.imgsz,
+        imgsz=cfg['imgs'],
         batch_size=batch,
         augment=mode == "train",  # augmentation
         hyp=cfg,  # TODO: probably add a get_hyps_from_cfg function
-        rect=cfg.rect or rect,  # rectangular batches
-        cache=cfg.cache or None,
-        single_cls=cfg.single_cls or False,
+        rect=cfg['rect'] or rect,  # rectangular batches
+        cache=cfg['cache'] or None,
+        single_cls=cfg['single_cls'] or False,
         stride=int(stride),
         pad=0.0 if mode == "train" else 0.5,
         prefix= colorstr(f"{mode}: "),
-        task=cfg.task,
-        classes=cfg.classes,
+        task=cfg['task'],
+        classes=cfg['classes'],
         data=data,
-        fraction=cfg.fraction if mode == "train" else 1.0,
+        fraction=cfg['fraction'] if mode == "train" else 1.0,
     )

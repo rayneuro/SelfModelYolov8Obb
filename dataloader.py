@@ -11,7 +11,7 @@ VERBOSE =  True # global verbose mode
 
 
 
-
+# 不知道在那執行
 class LoadImagesAndVideos:
     """
     YOLOv8 image/video dataloader.

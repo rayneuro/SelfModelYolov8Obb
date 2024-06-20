@@ -16,6 +16,9 @@ import torch
 import ops
 import hashlib
 import math
+import typing
+import yaml
+
 
 FILE = Path(__file__).resolve()
 ORCHVISION_VERSION = importlib.metadata.version("torchvision")  # faster than importing torchvision
@@ -61,7 +64,7 @@ def verify_image(args):
         shape = exif_size(im)  # image size
         shape = (shape[1], shape[0])  # hw
         assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
-        assert im.format.lower() in IMG_FORMATS, f"Invalid image format {im.format}. {FORMATS_HELP_MSG}"
+        assert im.format.lower() in IMG_FORMATS, f"Invalid image format {im.format}"
         if im.format.lower() in {"jpg", "jpeg"}:
             with open(im_file, "rb") as f:
                 f.seek(-2, 2)
@@ -87,7 +90,7 @@ def verify_image_label(args):
         shape = exif_size(im)  # image size
         shape = (shape[1], shape[0])  # hw
         assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
-        assert im.format.lower() in IMG_FORMATS, f"invalid image format {im.format}. {FORMATS_HELP_MSG}"
+        assert im.format.lower() in IMG_FORMATS, f"invalid image format {im.format}."
         if im.format.lower() in {"jpg", "jpeg"}:
             with open(im_file, "rb") as f:
                 f.seek(-2, 2)
@@ -100,10 +103,12 @@ def verify_image_label(args):
             nf = 1  # label found
             with open(lb_file) as f:
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
+                '''
                 if any(len(x) > 6 for x in lb) and (not keypoint):  # is segment
                     classes = np.array([x[0] for x in lb], dtype=np.float32)
                     segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
+                '''
                 lb = np.array(lb, dtype=np.float32)
             nl = len(lb)
             if nl:
@@ -205,6 +210,38 @@ def verify_image(args):
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
     return (im_file, cls), nf, nc, msg
 
+
+def dict2yaml_save(file="data.yaml", data=None, header=""):
+    """
+    Save YAML data to a file.
+
+    Args:
+        file (str, optional): File name. Default is 'data.yaml'.
+        data (dict): Data to save in YAML format.
+        header (str, optional): YAML header to add.
+
+    Returns:
+        (None): Data is saved to the specified file.
+    """
+    if data is None:
+        data = {}
+    file = Path(file)
+    if not file.parent.exists():
+        # Create parent directories if they don't exist
+        file.parent.mkdir(parents=True, exist_ok=True)
+
+    
+    # Convert Path objects to strings
+    valid_types = int, float, str, bool, list, tuple, dict, type(None)
+    for k, v in data.items():
+        if not isinstance(v, valid_types):
+            data[k] = str(v)
+
+    # Dump data to file in YAML format
+    with open(file, "w", errors="ignore", encoding="utf-8") as f:
+        if header:
+            f.write(header)
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
 
 def yaml_save(file="data.yaml", data=None, header=""):
     """
@@ -393,8 +430,39 @@ def remove_colorstr(input_string):
     return ansi_escape.sub("", input_string)
 
 
+def is_dir_writeable(dir_path: typing.Union[str, Path]) -> bool:
+    """
+    Check if a directory is writeable.
+
+    Args:
+        dir_path (str | Path): The path to the directory.
+
+    Returns:
+        (bool): True if the directory is writeable, False otherwise.
+    """
+    return os.access(str(dir_path), os.W_OK)
 
 
+def save_dataset_cache_file(prefix, path, x, version):
+    """Save an Ultralytics dataset *.cache dictionary x to path."""
+    x["version"] = version  # add cache version
+    if is_dir_writeable(path.parent):
+        if path.exists():
+            path.unlink()  # remove *.cache file if exists
+        np.save(str(path), x)  # save cache for next time
+        path.with_suffix(".cache.npy").rename(path)  # remove .npy suffix
+        LOGGER.info(f"{prefix}New cache created: {path}")
+    else:
+        LOGGER.warning(f"{prefix}WARNING ⚠️ Cache directory {path.parent} is not writeable, cache not saved.")
+
+def load_dataset_cache_file(path):
+    """Load an Ultralytics *.cache dictionary from path."""
+    import gc
+
+    gc.disable()  # reduce pickle load time https://github.com/ultralytics/ultralytics/pull/1585
+    cache = np.load(str(path), allow_pickle=True).item()  # load dict
+    gc.enable()
+    return cache
 
 
 class SettingsManager(dict):

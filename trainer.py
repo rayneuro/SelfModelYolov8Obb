@@ -92,13 +92,16 @@ def check_suffix(file="yolov8n.pt", suffix=".pt", msg=""):
 
 
 
+ROOT = Path('./')  # YOLO
+
 def check_file(file, suffix="", download=True, hard=True):
     """Search/download file (if necessary) and return path."""
     # check_suffix(file, suffix)  # optional
     file = str(file).strip()  # convert to string and strip spaces
     
     
-    files = glob.glob(str('./' / "**" / file), recursive=True)  # find file
+    files = glob.glob(str(ROOT / "**" / file), recursive=True)  # find file
+    #print('find files' , files)
     if not files and hard:
         raise FileNotFoundError(f"'{file}' does not exist")
     elif len(files) > 1 and hard:
@@ -217,20 +220,20 @@ def check_det_dataset(dataset, autodownload=True):
             s = f"success ✅ {dt}, saved to {colorstr('bold', DATASETS_DIR)}" if r in {0, None} else f"failure {dt} ❌"
             LOGGER.info(f"Dataset download {s}\n")
         '''
-    
+    #print(data)
     return data  # dictionary
 
 
 
 
 
-cfg = {
+default_cfg = {
 
     'task': 'detect', # (str) YOLO task, i.e. detect, segment, classify, pose
     'mode': 'train', # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark
     # Train settings -------------------------------------------------------------------------------------------------------
     'model': 'Yolov8l',# (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
-    'data' : ('./dataset' , True) ,# (str, optional) path to data file, i.e. coco8.yaml
+    'data' : './datasets/stomata.yaml' ,# (str, optional) path to data file, i.e. coco8.yaml
     'epochs': 100, # (int) number of epochs to train for
     'time' : 123,#, (float, optional) number of hours to train for, overrides epochs if supplied
     'patience' : 100 ,# (int) epochs to wait for no observable improvement for early stopping of training
@@ -353,9 +356,6 @@ cfg = {
 
 
 
-
-
-
 class BaseTrainer:
     """
     BaseTrainer.
@@ -392,7 +392,7 @@ class BaseTrainer:
         loss_names (list): List of loss names.
         csv (Path): Path to results CSV file.
     """
-    def __init__(self, args,  cfg = DEFAULT_CFG ,overrides=None, _callbacks=None ):
+    def __init__(self,  cfg = default_cfg  ,overrides=None, _callbacks=None ):
         """
         Initializes the BaseTrainer class.
 
@@ -413,25 +413,26 @@ class BaseTrainer:
         self.metrics = None
         self.plots = {}
         
-        init_seeds(self.args['seed'] + 1 , deterministic=self.args.deterministic)
+        init_seeds(self.args['seed'] + 1 , deterministic=self.args['deterministic'])
 
         # Dirs
         self.save_dir = Path('./results')
-        self.args.name = self.save_dir.name # update name for loggers
+        self.args['name'] = self.save_dir.name # update name for loggers
         self.wdir = self.save_dir / "weights"  # weights dir
         if RANK in {-1, 0}:
             self.wdir.mkdir(parents=True, exist_ok=True)  # make dir
             self.args['save_dir'] = str(self.save_dir)
-            yaml_save(self.save_dir / "args.yaml", vars(self.args))  # save run args
+            #yaml_save(self.save_dir / "args.yaml", vars(self.args))  # save run args
+            dict2yaml_save(self.save_dir / "args.json", self.args)  # save run args
         self.last, self.best = self.wdir / "last.pt", self.wdir / "best.pt"  # checkpoint paths
-        self.save_period = self.args.save_period
+        self.save_period = self.args['save_period']
 
         
         self.batch_size = self.args['batch']
         self.epochs = self.args['epochs']
         self.start_epoch = 0
         if RANK == -1:
-            print("One GPU CUDA : ")
+            print("RANK = -1 , use GPU cuda:0: ")
 
         # Device
         if self.device.type in {"cpu", "mps"}:
@@ -473,7 +474,7 @@ class BaseTrainer:
         if self.args['cos_lr']:
             self.lf = one_cycle(1, self.args['lrf'], self.epochs)  # cosine 1->hyp['lrf']
         else:
-            self.lf = lambda x: max(1 - x / self.epochs, 0) * (1.0 - self.args.lrf) + self.args.lrf  # linear
+            self.lf = lambda x: max(1 - x / self.epochs, 0) * (1.0 - self.args['lrf']) + self.args['lrf']  # linear
         self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
 
    
@@ -489,10 +490,10 @@ class BaseTrainer:
 
         # Freeze layers
         freeze_list = (
-            self.args.freeze
-            if isinstance(self.args.freeze, list)
-            else range(self.args.freeze)
-            if isinstance(self.args.freeze, int)
+            self.args['freeze']
+            if isinstance(self.args['freeze'], list)
+            else range(self.args['freeze'])
+            if isinstance(self.args['freeze'], int)
             else []
         )
         always_freeze_names = [".dfl"]  # always freeze these layers
@@ -550,19 +551,19 @@ class BaseTrainer:
 
         weight_decay = self.args['weight_decay'] * self.batch_size * self.accumulate / self.args['nbs']  # scale weight_decay
 
-        iterations = math.ceil(len(self.train_loader.dataset) / max(self.batch_size, self.args.nbs)) * self.epochs
+        iterations = math.ceil(len(self.train_loader.dataset) / max(self.batch_size, self.args['nbs'])) * self.epochs
 
         self.optimizer = self.build_optimizer(
             model=self.model,
-            name=self.args.optimizer,
-            lr=self.args.lr0,
-            momentum=self.args.momentum,
+            name=self.args['optimizer'],
+            lr=self.args['lr0'],
+            momentum=self.args['momentum'],
             decay=weight_decay,
             iterations=iterations,
         )
         # Scheduler
         self._setup_scheduler()
-        self.stopper, self.stop = EarlyStopping(patience=self.args.patience), False
+        self.stopper, self.stop = EarlyStopping(patience=self.args['patience']), False
         self.resume_training(ckpt)
         self.scheduler.last_epoch = self.start_epoch - 1  # do not move
         self.run_callbacks("on_pretrain_routine_end")
@@ -580,13 +581,13 @@ class BaseTrainer:
         self.train_time_start = time.time()
         self.run_callbacks("on_train_start")
         LOGGER.info(
-            f'Image sizes {self.args['imgsz']} train, {self.args.imgsz} val\n'
+            f'Image sizes {640} train, {640} val\n'
             f'Using {self.train_loader.num_workers * (world_size or 1)} dataloader workers\n'
             f"Logging results to {colorstr('bold', self.save_dir)}\n"
-            f'Starting training for ' + (f"{self.args.time} hours..." if self.args.time else f"{self.epochs} epochs...")
+            f'Starting training for ' + (f"{self.args['time']} hours..." if self.args['time'] else f"{self.epochs} epochs...")
         )
-        if self.args.close_mosaic:
-            base_idx = (self.epochs - self.args.close_mosaic) * nb
+        if self.args['close_mosaic']:
+            base_idx = (self.epochs - self.args['close_mosaic']) * nb
             self.plot_idx.extend([base_idx, base_idx + 1, base_idx + 2])
         epoch = self.start_epoch
         self.optimizer.zero_grad()  # zero any resumed gradients to ensure stability on train start
@@ -602,7 +603,7 @@ class BaseTrainer:
                 self.train_loader.sampler.set_epoch(epoch)
             pbar = enumerate(self.train_loader)
             # Update dataloader attributes (optional)
-            if epoch == (self.epochs - self.args.close_mosaic):
+            if epoch == (self.epochs - self.args['close_mosaic']):
                 self._close_dataloader_mosaic()
                 self.train_loader.reset()
 
@@ -616,14 +617,14 @@ class BaseTrainer:
                 ni = i + nb * epoch
                 if ni <= nw:
                     xi = [0, nw]  # x interp
-                    self.accumulate = max(1, int(np.interp(ni, xi, [1, self.args.nbs / self.batch_size]).round()))
+                    self.accumulate = max(1, int(np.interp(ni, xi, [1, self.args['nbs'] / self.batch_size]).round()))
                     for j, x in enumerate(self.optimizer.param_groups):
                         # Bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
                         x["lr"] = np.interp(
-                            ni, xi, [self.args.warmup_bias_lr if j == 0 else 0.0, x["initial_lr"] * self.lf(epoch)]
+                            ni, xi, [self.args['warmup_bias_lr'] if j == 0 else 0.0, x["initial_lr"] * self.lf(epoch)]
                         )
                         if "momentum" in x:
-                            x["momentum"] = np.interp(ni, xi, [self.args.warmup_momentum, self.args.momentum])
+                            x["momentum"] = np.interp(ni, xi, [self.args['warmup_momentum'], self.args['momentum']])
 
                 # Forward
                 with torch.cuda.amp.autocast(self.amp):
@@ -643,8 +644,8 @@ class BaseTrainer:
                     last_opt_step = ni
 
                     # Timed stopping
-                    if self.args.time:
-                        self.stop = (time.time() - self.train_time_start) > (self.args.time * 3600)
+                    if self.args['time']:
+                        self.stop = (time.time() - self.train_time_start) > (self.args['time'] * 3600)
                         if RANK != -1:  # if DDP training
                             broadcast_list = [self.stop if RANK == 0 else None]
                             dist.broadcast_object_list(broadcast_list, 0)  # broadcast 'stop' to all ranks
@@ -662,7 +663,7 @@ class BaseTrainer:
                         % (f"{epoch + 1}/{self.epochs}", mem, *losses, batch["cls"].shape[0], batch["img"].shape[-1])
                     )
                     self.run_callbacks("on_batch_end")
-                    if self.args.plots and ni in self.plot_idx:
+                    if self.args['plots'] and ni in self.plot_idx:
                         self.plot_training_samples(batch, ni)
 
                 self.run_callbacks("on_train_batch_end")
@@ -674,15 +675,15 @@ class BaseTrainer:
                 self.ema.update_attr(self.model, include=["yaml", "nc", "args", "names", "stride", "class_weights"])
 
                 # Validation
-                if self.args.val or final_epoch or self.stopper.possible_stop or self.stop:
+                if self.args['val'] or final_epoch or self.stopper.possible_stop or self.stop:
                     self.metrics, self.fitness = self.validate()
                 self.save_metrics(metrics={**self.label_loss_items(self.tloss), **self.metrics, **self.lr})
                 self.stop |= self.stopper(epoch + 1, self.fitness) or final_epoch
-                if self.args.time:
-                    self.stop |= (time.time() - self.train_time_start) > (self.args.time * 3600)
+                if self.args['time']:
+                    self.stop |= (time.time() - self.train_time_start) > (self.args['time'] * 3600)
 
                 # Save model
-                if self.args.save or final_epoch:
+                if self.args['save'] or final_epoch:
                     self.save_model()
                     self.run_callbacks("on_model_save")
 
@@ -690,9 +691,9 @@ class BaseTrainer:
             t = time.time()
             self.epoch_time = t - self.epoch_time_start
             self.epoch_time_start = t
-            if self.args.time:
+            if self.args['time']:
                 mean_epoch_time = (t - self.train_time_start) / (epoch - self.start_epoch + 1)
-                self.epochs = self.args.epochs = math.ceil(self.args.time * 3600 / mean_epoch_time)
+                self.epochs = self.args['epochs'] = math.ceil(self.args['time'] * 3600 / mean_epoch_time)
                 self._setup_scheduler()
                 self.scheduler.last_epoch = self.epoch  # do not move
                 self.stop |= epoch >= self.epochs  # stop if exceeded epochs
@@ -767,9 +768,9 @@ class BaseTrainer:
         """
         try:
             
-            data = check_det_dataset(self.args.data)
+            data = check_det_dataset(self.args['data'])
             if "yaml_file" in data:
-                    self.args.data = data["yaml_file"]  # for validating 'yolo train data=url.zip' usage
+                    self.args['data'] = data["yaml_file"]  # for validating 'yolo train data=url.zip' usage
         except Exception as e:
             raise RuntimeError(emojis(f"Dataset  error ❌ {e}")) from e
         self.data = data
@@ -880,7 +881,7 @@ class BaseTrainer:
                 strip_optimizer(f)  # strip optimizers
                 if f is self.best:
                     LOGGER.info(f"\nValidating {f}...")
-                    self.validator.args.plots = self.args.plots
+                    self.validator.args.plots = self.args['plots']
                     self.metrics = self.validator(model=f)
                     self.metrics.pop("fitness", None)
                     print('Model Eval')
@@ -898,11 +899,11 @@ class BaseTrainer:
                 # Check that resume data YAML exists, otherwise strip to force re-download of dataset
                 ckpt_args = attempt_load_weights(last).args
                 if not Path(ckpt_args["data"]).exists():
-                    ckpt_args["data"] = self.args.data
+                    ckpt_args["data"] = self.args['data']
 
                 resume = True
                 self.args = get_cfg(ckpt_args)
-                self.args.model = self.args.resume = str(last)  # reinstate model
+                self.args['model'] = self.args.resume = str(last)  # reinstate model
                 for k in "imgsz", "batch", "device":  # allow arg updates to reduce memory or update device on resume
                     if k in overrides:
                         setattr(self.args, k, overrides[k])
@@ -928,10 +929,10 @@ class BaseTrainer:
             self.ema.ema.load_state_dict(ckpt["ema"].float().state_dict())  # EMA
             self.ema.updates = ckpt["updates"]
         assert start_epoch > 0, (
-            f"{self.args.model} training to {self.epochs} epochs is finished, nothing to resume.\n"
-            f"Start a new training without resuming, i.e. 'yolo train model={self.args.model}'"
+            f"{self.args['model']} training to {self.epochs} epochs is finished, nothing to resume.\n"
+            f"Start a new training without resuming, i.e. 'yolo train model={self.args['model']}'"
         )
-        LOGGER.info(f"Resuming training {self.args.model} from epoch {start_epoch + 1} to {self.epochs} total epochs")
+        LOGGER.info(f"Resuming training {self.args['model']} from epoch {start_epoch + 1} to {self.epochs} total epochs")
         if self.epochs < start_epoch:
             LOGGER.info(
                 f"{self.model} has been trained for {ckpt['epoch']} epochs. Fine-tuning for {self.epochs} more epochs."
@@ -939,7 +940,7 @@ class BaseTrainer:
             self.epochs += ckpt["epoch"]  # finetune additional epochs
         self.best_fitness = best_fitness
         self.start_epoch = start_epoch
-        if start_epoch > (self.epochs - self.args.close_mosaic):
+        if start_epoch > (self.epochs - self.args['close_mosaic']):
             self._close_dataloader_mosaic()
 
     def _close_dataloader_mosaic(self):
@@ -974,13 +975,13 @@ class BaseTrainer:
         if name == "auto":
             LOGGER.info(
                 f"{colorstr('optimizer:')} 'optimizer=auto' found, "
-                f"ignoring 'lr0={self.args.lr0}' and 'momentum={self.args.momentum}' and "
+                f"ignoring 'lr0={self.args['lr0']}' and 'momentum={self.args['momentum']}' and "
                 f"determining best 'optimizer', 'lr0' and 'momentum' automatically... "
             )
             nc = getattr(model, "nc", 10)  # number of classes
             lr_fit = round(0.002 * 5 / (4 + nc), 6)  # lr0 fit equation to 6 decimal places
             name, lr, momentum = ("SGD", 0.01, 0.9) if iterations > 10000 else ("AdamW", lr_fit, 0.9)
-            self.args.warmup_bias_lr = 0.0  # no higher than 0.01 for Adam
+            self.args['warmup_bias_lr'] = 0.0  # no higher than 0.01 for Adam
 
         for module_name, module in model.named_modules():
             for param_name, param in module.named_parameters(recurse=False):
@@ -1003,7 +1004,7 @@ class BaseTrainer:
             raise NotImplementedError(
                 f"Optimizer '{name}' not found in list of available optimizers "
                 f"[Adam, AdamW, NAdam, RAdam, RMSProp, SGD, auto]."
-                "To request support for addition optimizers please visit https://github.com/ultralytics/ultralytics."
+                
             )'''
         optimizer = optim.Adam(g[2], lr=lr, betas= (momentum,0.999), weight_decay=0.0)
         
@@ -1024,7 +1025,6 @@ class DetectionTrainer(BaseTrainer):
 
     Example:
         ```python
-        from ultralytics.models.yolo.detect import DetectionTrainer
 
         args = dict(model='yolov8n.pt', data='coco8.yaml', epochs=3)
         trainer = DetectionTrainer(overrides=args)
@@ -1059,10 +1059,10 @@ class DetectionTrainer(BaseTrainer):
     def preprocess_batch(self, batch):
         """Preprocesses a batch of images by scaling and converting to float."""
         batch["img"] = batch["img"].to(self.device, non_blocking=True).float() / 255
-        if self.args.multi_scale:
+        if self.args['multi_scale']:
             imgs = batch["img"]
             sz = (
-                random.randrange(self.args.imgsz * 0.5, self.args.imgsz * 1.5 + self.stride)
+                random.randrange(self.args['imgsz'] * 0.5, self.args['imgsz'] * 1.5 + self.stride)
                 // self.stride
                 * self.stride
             )  # size
@@ -1151,7 +1151,6 @@ class DetectionTrainer(BaseTrainer):
 
 class Colors:
     """
-    Ultralytics default color palette https://ultralytics.com/.
 
     This class provides methods to work with the Ultralytics color palette, including converting hex color codes to
     RGB values.
@@ -1229,8 +1228,8 @@ colors = Colors()  # create instance for 'from utils.plots import colors'
 
 def plot_labels(boxes, cls, names=(), save_dir=Path(""), on_plot=None):
     """Plot training labels including class histograms and box statistics."""
-    import pandas  # scope for faster 'import ultralytics'
-    import seaborn  # scope for faster 'import ultralytics'
+    import pandas  # 
+    import seaborn  #
 
     # Filter matplotlib>=3.7.2 warning and Seaborn use_inf and is_categorical FutureWarnings
     warnings.filterwarnings("ignore", category=UserWarning, message="The figure layout has changed to tight")
@@ -1279,3 +1278,5 @@ def plot_labels(boxes, cls, names=(), save_dir=Path(""), on_plot=None):
     plt.close()
     if on_plot:
         on_plot(fname)
+
+

@@ -1,10 +1,10 @@
 import cv2
 import torch
 import torchvision.transforms as transforms
+import trainer
 
 
-
-
+'''
 class Model(torch.nn.Module):
     def __init__(self):
         super(Model, self).__init__()
@@ -16,6 +16,7 @@ class Model(torch.nn.Module):
         return x
     
 
-model = Model()
+model = Model()'''
 
+trainer_yolov8 = trainer.DetectionTrainer()
 
