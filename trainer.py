@@ -101,6 +101,8 @@ def check_file(file, suffix="", download=True, hard=True):
     
     
     files = glob.glob(str(ROOT / "**" / file), recursive=True)  # find file
+    print('here is files')
+    #print(files)
     #print('find files' , files)
     if not files and hard:
         raise FileNotFoundError(f"'{file}' does not exist")
@@ -160,7 +162,7 @@ def check_det_dataset(dataset, autodownload=True):
 
     # Read YAML
     data = yaml_load(file, append_filename=True)  # dictionary
-
+    #print(data)
     # Checks
     for k in "train", "val":
         if k not in data:
@@ -184,7 +186,7 @@ def check_det_dataset(dataset, autodownload=True):
     # Resolve paths
     path = Path(extract_dir or data.get("path") or Path(data.get("yaml_file", "")).parent)  # dataset root
     if not path.is_absolute():
-        DATASETS_DIR = './datasets'
+        DATASETS_DIR = './'
         path = (DATASETS_DIR / path).resolve()
 
     # Set paths
@@ -439,7 +441,7 @@ class BaseTrainer:
             self.args['workers'] = 0  # faster CPU training as time dominated by inference, not dataloading
 
         # Model and Dataset
-        self.model = ModelYolov8obb  # add suffix, i.e. yolov8n -> yolov8n.pt
+        self.model = ModelYolov8obb()  # add suffix, i.e. yolov8n -> yolov8n.pt
         self.trainset, self.testset = self.get_dataset()
         self.ema = None
 
@@ -774,6 +776,8 @@ class BaseTrainer:
         except Exception as e:
             raise RuntimeError(emojis(f"Dataset  error ❌ {e}")) from e
         self.data = data
+        print('get_dataset train , test ,val')
+        print(data)
         return data["train"], data.get("val") or data.get("test")
 
     
@@ -1085,12 +1089,14 @@ class DetectionTrainer(BaseTrainer):
         self.model.args = self.args  # attach hyperparameters to model
         # TODO: self.model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc
 
-    def get_model(self, cfg=None, weights=None, verbose=True):
+    
+    def get_model(self, weights=None, verbose=True , use_model = False):
         """Return a YOLO detection model."""
-        model = ModelYolov8obb(args = self.args)
-        if weights:
-            model.load(weights)
-        return model
+
+        if use_model:
+            return ModelYolov8obb(nc=3,ch =3)
+        else :
+            return torch.load(weights)
 
     '''
     def get_validator(self):

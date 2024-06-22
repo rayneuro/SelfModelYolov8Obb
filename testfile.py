@@ -1,7 +1,7 @@
 import cv2
 import torch
 import torchvision.transforms as transforms
-import trainer
+import Yolov8obb 
 
 
 '''
@@ -18,5 +18,6 @@ class Model(torch.nn.Module):
 
 model = Model()'''
 
-trainer_yolov8 = trainer.DetectionTrainer()
+yolov8obb = Yolov8obb.YoloOBB()
+yolov8obb.train()
 

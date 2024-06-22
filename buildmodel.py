@@ -13,7 +13,7 @@ from torch_utils import *
 
 class ModelYolov8obb(nn.Module):
 
-    def __init__(self, nc=80, ch = 3, arch=None, act=None ,args = dict): # number of classed , input channels
+    def __init__(self, nc=3, ch = 3, arch=None, act=None ,args = dict): # number of classed , input channels
         """
         YOLOv8 model.
 
@@ -32,7 +32,7 @@ class ModelYolov8obb(nn.Module):
         self.args = args
         
         self.nc = nc
-        self.args['nc'] = self.nc
+        
         self.names = {i: f"{i}" for i in range(self.nc)}  # default names dict
         # backbone
         self.conv1 = Conv(3, 64, 3, 2) # l0  80x320x320
@@ -116,12 +116,14 @@ class ModelYolov8obb(nn.Module):
         return torch.cat((x, y, wh, cls), dim)
     
     
-
+    
+    
     def load(self, weights, verbose =True):
         '''
             weights Load model from weights
         '''
         weights = torch.load(weights, map_location=lambda storage, loc: storage)
+    
     
     def _apply(self, fn):
         """
@@ -149,5 +151,42 @@ class ModelYolov8obb(nn.Module):
         preds = self.forward(batch["img"]) if preds is None else preds
         return self.criterion(preds, batch)
     
-model  = ModelYolov8obb(args ={})
-print(model)
+
+    def _check_is_pytorch_model(self) -> None:
+        """Raises TypeError is model is not a PyTorch model."""
+        pt_str = isinstance(self.model, (str, Path)) and Path(self.model).suffix == ".pt"
+        pt_module = isinstance(self.model, nn.Module)
+        if not (pt_module or pt_str):
+            raise TypeError(
+                f"model='{self.model}' should be a *.pt PyTorch model to run this method, but is a different format. "
+                f"PyTorch models can train, val, predict and export, i.e. 'model.train(data=...)', but exported "
+                f"formats like ONNX, TensorRT etc. only support 'predict' and 'val' modes, "
+                f"i.e. 'yolo predict model=yolov8n.onnx'.\nTo run CUDA or MPS inference please pass the device "
+                f"argument directly in your inference command, i.e. 'model.predict(source=..., device=0)'"
+            )
+
+    def save(self, filename: Union[str, Path] = "saved_model.pt", use_dill=True) -> None:
+        """
+        Saves the current model state to a file.
+
+        This method exports the model's checkpoint (ckpt) to the specified filename.
+
+        Args:
+            filename (str | Path): The name of the file to save the model to. Defaults to 'saved_model.pt'.
+            use_dill (bool): Whether to try using dill for serialization if available. Defaults to True.
+
+        Raises:
+            AssertionError: If the model is not a PyTorch model.
+        """
+        self._check_is_pytorch_model()
+        from datetime import datetime
+
+        from ultralytics import __version__
+
+        updates = {
+            "date": datetime.now().isoformat()
+        }
+        torch.save({**self.ckpt, **updates}, filename, use_dill=use_dill)
+
+#model  = ModelYolov8obb(args ={})
+#print(model)
