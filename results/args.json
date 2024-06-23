@@ -1,4 +1,4 @@
-task: detect
+task: obb
 mode: train
 model: Yolov8l
 data: ./datasets/stomata.yaml

@@ -18,6 +18,6 @@ class Model(torch.nn.Module):
 
 model = Model()'''
 
-yolov8obb = Yolov8obb.YoloOBB()
+yolov8obb = Yolov8obb.YoloModel() 
 yolov8obb.train()
 

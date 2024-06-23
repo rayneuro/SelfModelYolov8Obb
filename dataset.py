@@ -433,9 +433,11 @@ class YOLODataset(BaseDataset):
     def __init__(self, *args, data=None, task="obb", **kwargs):
         """Initializes the YOLODataset with optional configurations for segments and keypoints."""
         
-        self.use_obb = task == "obb"
+        self.use_obb = True
         self.data = data
-        assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
+        self.use_keypoints = False
+        self.use_segments = False
+        #assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
         super().__init__(*args, **kwargs)
 
     def cache_labels(self, path=Path("./labels.cache")):
@@ -453,11 +455,8 @@ class YOLODataset(BaseDataset):
         desc = f"{self.prefix}Scanning {path.parent / path.stem}..."
         total = len(self.im_files)
         nkpt, ndim = self.data.get("kpt_shape", (0, 0))
-        if self.use_keypoints and (nkpt <= 0 or ndim not in {2, 3}):
-            raise ValueError(
-                "'kpt_shape' in data.yaml missing or incorrect. Should be a list with [number of "
-                "keypoints, number of dims (2 for x,y or 3 for x,y,visible)], i.e. 'kpt_shape: [17, 3]'"
-            )
+        
+
         with ThreadPool(NUM_THREADS) as pool:
             results = pool.imap(
                 func=verify_image_label,
@@ -508,6 +507,8 @@ class YOLODataset(BaseDataset):
     def get_labels(self):
         """Returns dictionary of labels for YOLO training."""
         self.label_files = img2label_paths(self.im_files)
+        print('show label files')
+        print(self.label_files)
         cache_path = Path(self.label_files[0]).parent.with_suffix(".cache")
         try:
             cache, exists = load_dataset_cache_file(cache_path), True  # attempt to load a *.cache file
@@ -559,8 +560,6 @@ class YOLODataset(BaseDataset):
             Format(
                 bbox_format="xywh",
                 normalize=True,
-                return_mask=self.use_segments,
-                return_keypoint=self.use_keypoints,
                 return_obb= True,
                 batch_idx=True,
                 bgr= 0.0,  # only affect training.
@@ -626,7 +625,7 @@ def build_yolo_dataset(cfg, img_path, batch, data, mode="train", rect=False, str
     dataset = YOLODataset
     return dataset(
         img_path=img_path,
-        imgsz=cfg['imgs'],
+        imgsz=cfg['imgsz'],
         batch_size=batch,
         augment=mode == "train",  # augmentation
         hyp=cfg,  # TODO: probably add a get_hyps_from_cfg function

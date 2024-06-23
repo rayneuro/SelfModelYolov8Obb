@@ -6,7 +6,7 @@ from typing import Union ,List
 
 
 
-class YoloOBB(nn.Module):
+class YoloModel(nn.Module):
     
 
     def __init__(
@@ -15,7 +15,7 @@ class YoloOBB(nn.Module):
         task: str = None,
         verbose: bool = False,
     ) -> None:
-        super(YoloOBB,self).__init__()
+        super(YoloModel,self).__init__()
 
         
         self.model = None

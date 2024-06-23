@@ -24,6 +24,7 @@ from torch import nn, optim
 from utils import *
 from tasks import *
 from plotting import *
+from copy import copy
 import sys
 
 
@@ -231,7 +232,7 @@ def check_det_dataset(dataset, autodownload=True):
 
 default_cfg = {
 
-    'task': 'detect', # (str) YOLO task, i.e. detect, segment, classify, pose
+    'task': 'obb', # (str) YOLO task, i.e. detect, segment, classify, pose
     'mode': 'train', # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark
     # Train settings -------------------------------------------------------------------------------------------------------
     'model': 'Yolov8l',# (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml
@@ -485,7 +486,7 @@ class BaseTrainer:
         """Builds dataloaders and optimizer on correct rank process."""
 
         # Model
-        self.run_callbacks("on_pretrain_routine_start")
+        #self.run_callbacks("on_pretrain_routine_start")
         ckpt = self.setup_model()
         self.model = self.model.to(self.device)
         self.set_model_attributes()
@@ -1045,15 +1046,15 @@ class DetectionTrainer(BaseTrainer):
             mode (str): `train` mode or `val` mode, users are able to customize different augmentations for each mode.
             batch (int, optional): Size of batches, this is for `rect`. Defaults to None.
         """
-        gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
-        return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
+        # gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
+        return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "train", stride=32)
 
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
         """Construct and return dataloader."""
         assert mode in {"train", "val"}, f"Mode must be 'train' or 'val', not {mode}."
         with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
             dataset = self.build_dataset(dataset_path, mode, batch_size)
-        shuffle = mode == "train"
+        shuffle = False
         if getattr(dataset, "rect", False) and shuffle:
             LOGGER.warning("WARNING ⚠️ 'rect=True' is incompatible with DataLoader shuffle, setting shuffle=False")
             shuffle = False
@@ -1098,13 +1099,13 @@ class DetectionTrainer(BaseTrainer):
         else :
             return torch.load(weights)
 
-    '''
+    
     def get_validator(self):
         """Returns a DetectionValidator for YOLO model validation."""
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
-        return yolo.detect.DetectionValidator(
+        return DetectionValidator(
             self.test_loader, save_dir=self.save_dir, args= copy(self.args), _callbacks=self.callbacks
-        )'''
+        )
 
     def label_loss_items(self, loss_items=None, prefix="train"):
         """

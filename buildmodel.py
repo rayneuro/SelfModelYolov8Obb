@@ -10,7 +10,7 @@ from torch_utils import *
 
 
 # Build Yolov8 obb model 
-
+# Change by ultralytics tasks.py/ BaseModel and DetectionModel 
 class ModelYolov8obb(nn.Module):
 
     def __init__(self, nc=3, ch = 3, arch=None, act=None ,args = dict): # number of classed , input channels
@@ -101,7 +101,6 @@ class ModelYolov8obb(nn.Module):
     def init_criterion(self):
         """Initialize the loss criterion for the model."""
         
-        
         return v8OBBLoss(self,self.args) # args is a hyperparameters
     
     @staticmethod
@@ -124,7 +123,7 @@ class ModelYolov8obb(nn.Module):
         '''
         weights = torch.load(weights, map_location=lambda storage, loc: storage)
     
-    
+    '''
     def _apply(self, fn):
         """
         Applies a function to all the tensors in the model that are not parameters or registered buffers.
@@ -136,12 +135,12 @@ class ModelYolov8obb(nn.Module):
             (BaseModel): An updated BaseModel object.
         """
         self = super()._apply(fn)
-        m = self.model[-1]  # Detect()
+        
         if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
             m.stride = fn(m.stride)
             m.anchors = fn(m.anchors)
             m.strides = fn(m.strides)
-        return self
+        return self'''
 
     def loss(self, batch , preds =None):
         
