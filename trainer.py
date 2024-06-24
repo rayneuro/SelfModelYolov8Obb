@@ -569,7 +569,7 @@ class BaseTrainer:
         self.stopper, self.stop = EarlyStopping(patience=self.args['patience']), False
         self.resume_training(ckpt)
         self.scheduler.last_epoch = self.start_epoch - 1  # do not move
-        self.run_callbacks("on_pretrain_routine_end")
+        #self.run_callbacks("on_pretrain_routine_end")
 
     def _do_train(self, world_size=1):
         """Train completed, evaluate and plot if specified by arguments."""
@@ -582,7 +582,7 @@ class BaseTrainer:
         self.epoch_time = None
         self.epoch_time_start = time.time()
         self.train_time_start = time.time()
-        self.run_callbacks("on_train_start")
+        #self.run_callbacks("on_train_start")
         LOGGER.info(
             f'Image sizes {640} train, {640} val\n'
             f'Using {self.train_loader.num_workers * (world_size or 1)} dataloader workers\n'
