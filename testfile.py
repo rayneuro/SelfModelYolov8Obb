@@ -2,7 +2,9 @@ import cv2
 import torch
 import torchvision.transforms as transforms
 import Yolov8obb 
+import config
 
+print(config.get_cfg())
 
 '''
 class Model(torch.nn.Module):
@@ -18,6 +20,6 @@ class Model(torch.nn.Module):
 
 model = Model()'''
 
-yolov8obb = Yolov8obb.YoloModel() 
-yolov8obb.train()
+#yolov8obb = Yolov8obb.YoloModel() 
+#yolov8obb.train()
 
